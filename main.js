@@ -48,6 +48,36 @@ ipcMain.handle('board:load', async (e) => {
   return { canceled: false, filePath: filePaths[0], json };
 });
 
+// ---- 自動保存 ----
+const statePath = () => path.join(app.getPath('userData'), 'board.json');
+
+// 書き込み途中で落ちても壊れないよう、一時ファイルに書いてから置き換える
+function writeStateFile(json) {
+  const file = statePath();
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, json, 'utf8');
+  fs.renameSync(tmp, file);
+}
+
+ipcMain.on('state:read', (e) => {
+  try {
+    e.returnValue = fs.readFileSync(statePath(), 'utf8');
+  } catch (err) {
+    e.returnValue = null;
+  }
+});
+
+ipcMain.handle('state:write', (e, json) => writeStateFile(json));
+
+ipcMain.on('state:write-sync', (e, json) => {
+  try {
+    writeStateFile(json);
+    e.returnValue = true;
+  } catch (err) {
+    e.returnValue = false;
+  }
+});
+
 Menu.setApplicationMenu(null);
 
 app.whenReady().then(() => {

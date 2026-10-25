@@ -21,19 +21,42 @@ const FILE_VERSION = 1;
 let state = load();
 let topZ = 0;
 
-function load() {
+function parseState(json) {
   try {
-    const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const data = JSON.parse(json);
     if (data && Array.isArray(data.notes)) return data;
-  } catch (e) { /* 壊れたデータは無視して初期化 */ }
-  return { background: DEFAULT_BG, notes: [] };
+  } catch (e) { /* 壊れたデータは無視 */ }
+  return null;
 }
 
-function save() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) { /* 保存できなくても動作は継続 */ }
+function load() {
+  // 旧版は localStorage に保存していたので、ファイルが無ければそちらから引き継ぐ
+  return parseState(window.fusen.readState())
+    || parseState(localStorage.getItem(STORAGE_KEY))
+    || { background: DEFAULT_BG, notes: [] };
 }
+
+// 文字入力のたびに書き込まないよう、少し待ってからまとめて保存する
+const SAVE_DELAY = 300;
+let saveTimer = null;
+
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, SAVE_DELAY);
+}
+
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  window.fusen.writeState(JSON.stringify(state)).catch(() => { /* 保存できなくても動作は継続 */ });
+}
+
+window.addEventListener('beforeunload', () => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    window.fusen.writeStateSync(JSON.stringify(state));
+  }
+});
 
 // ---- 背景色 ----
 function setBackground(color) {
@@ -62,6 +85,7 @@ function applyRect(note, el) {
 }
 
 function applyStyle(note, el) {
+  if (note.type === 'image') return;
   const text = el.querySelector('.note-text');
   el.style.background = note.color || DEFAULT_NOTE_COLOR;
   text.style.color = note.textColor || DEFAULT_TEXT_COLOR;
@@ -169,14 +193,19 @@ function startDrag(e, note, el, onMove) {
 function resizeBy(dir, note, dx, dy, start) {
   if (dir.includes('e')) note.w = Math.max(MIN_W, start.w + dx);
   if (dir.includes('s')) note.h = Math.max(MIN_H, start.h + dy);
-  if (dir.includes('w')) {
-    note.w = Math.max(MIN_W, start.w - dx);
-    note.x = start.x + start.w - note.w;
+  if (dir.includes('w')) note.w = Math.max(MIN_W, start.w - dx);
+  if (dir.includes('n')) note.h = Math.max(MIN_H, start.h - dy);
+  // 画像の付箋を四隅で拡大・縮小するときは縦横比を保つ（横方向の変化に合わせる）
+  if (note.type === 'image' && dir.length === 2) {
+    const ratio = start.w / start.h;
+    note.h = note.w / ratio;
+    if (note.h < MIN_H) {
+      note.h = MIN_H;
+      note.w = MIN_H * ratio;
+    }
   }
-  if (dir.includes('n')) {
-    note.h = Math.max(MIN_H, start.h - dy);
-    note.y = start.y + start.h - note.h;
-  }
+  if (dir.includes('w')) note.x = start.x + start.w - note.w;
+  if (dir.includes('n')) note.y = start.y + start.h - note.h;
 }
 
 function select(el) {
@@ -188,15 +217,29 @@ function select(el) {
 
 function renderNote(note) {
   const el = document.createElement('div');
-  el.className = 'note';
+  const isImage = note.type === 'image';
+  el.className = isImage ? 'note image' : 'note';
   el.dataset.id = note.id;
   el.style.zIndex = note.z;
   applyRect(note, el);
 
-  const text = document.createElement('textarea');
-  text.className = 'note-text';
-  text.value = note.text;
-  text.spellcheck = false;
+  let content;
+  if (isImage) {
+    content = document.createElement('img');
+    content.className = 'note-image';
+    content.src = note.image;
+    content.alt = '';
+    content.draggable = false;
+  } else {
+    content = document.createElement('textarea');
+    content.className = 'note-text';
+    content.value = note.text;
+    content.spellcheck = false;
+    content.addEventListener('input', () => {
+      note.text = content.value;
+      save();
+    });
+  }
 
   // 移動用：左上のグリップと枠線部分
   const grip = document.createElement('div');
@@ -215,7 +258,8 @@ function renderNote(note) {
   close.title = '削除';
   close.textContent = '×';
 
-  el.append(text, ...edges, grip, close, createStyleBar(note, el));
+  el.append(content, ...edges, grip, close);
+  if (!isImage) el.appendChild(createStyleBar(note, el));
   applyStyle(note, el);
   for (const dir of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
     const r = document.createElement('div');
@@ -231,19 +275,17 @@ function renderNote(note) {
   });
   grip.addEventListener('pointerdown', startMove);
   edges.forEach((edge) => edge.addEventListener('pointerdown', startMove));
+  // 画像はどこをつかんでも移動できる
+  if (isImage) content.addEventListener('pointerdown', startMove);
 
   close.addEventListener('pointerdown', (e) => e.stopPropagation());
   close.addEventListener('click', () => {
-    if (note.text && !confirm('この付箋を削除しますか？')) return;
+    if ((note.text || isImage) && !confirm('この付箋を削除しますか？')) return;
     state.notes = state.notes.filter((n) => n.id !== note.id);
     el.remove();
     save();
   });
 
-  text.addEventListener('input', () => {
-    note.text = text.value;
-    save();
-  });
   el.addEventListener('pointerdown', () => {
     bringToFront(note, el);
     select(el);
@@ -254,9 +296,13 @@ function renderNote(note) {
   return el;
 }
 
+function newId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
 function createNote(x, y) {
   const note = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: newId(),
     x, y, w: 220, h: 180,
     z: ++topZ,
     text: '',
@@ -278,6 +324,81 @@ board.addEventListener('pointerdown', (e) => {
 board.addEventListener('dblclick', (e) => {
   if (e.target !== board) return;
   createNote(e.clientX, e.clientY);
+});
+
+// ---- 画像の付箋 ----
+const IMAGE_MAX_SIZE = 400; // 貼り付け直後の最大サイズ（長辺）
+
+function readAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function imageSize(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => reject(new Error('画像を読み込めませんでした'));
+    img.src = src;
+  });
+}
+
+// (x, y) を中心に画像の付箋を作る
+async function createImageNote(file, x, y) {
+  let image, size;
+  try {
+    image = await readAsDataURL(file);
+    size = await imageSize(image);
+  } catch (e) {
+    alert('画像を貼り付けられませんでした。\n' + e.message);
+    return;
+  }
+  const scale = Math.min(1, IMAGE_MAX_SIZE / Math.max(size.w, size.h));
+  let w = Math.max(1, Math.round(size.w * scale));
+  let h = Math.max(1, Math.round(size.h * scale));
+  // 小さすぎる画像は最小サイズまで縦横比を保って広げる
+  const up = Math.max(1, MIN_W / w, MIN_H / h);
+  w = Math.round(w * up);
+  h = Math.round(h * up);
+  const note = {
+    id: newId(),
+    type: 'image',
+    x: Math.round(x - w / 2),
+    y: Math.round(y - h / 2),
+    w, h,
+    z: ++topZ,
+    image,
+  };
+  state.notes.push(note);
+  save();
+  select(renderNote(note));
+}
+
+const imageFiles = (files) => Array.from(files || []).filter((f) => f.type.startsWith('image/'));
+
+// ウィンドウへのドロップでファイルが開かれてしまうのを止める
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  imageFiles(e.dataTransfer.files).forEach((file, i) =>
+    createImageNote(file, e.clientX + i * 20, e.clientY + i * 20));
+});
+
+// 貼り付け位置は最後にマウスがあった場所
+let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+document.addEventListener('pointermove', (e) => { mouse = { x: e.clientX, y: e.clientY }; });
+
+document.addEventListener('paste', (e) => {
+  const files = imageFiles(Array.from(e.clipboardData.items)
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile()));
+  if (!files.length) return; // 文字の貼り付けはそのまま
+  e.preventDefault();
+  files.forEach((file, i) => createImageNote(file, mouse.x + i * 20, mouse.y + i * 20));
 });
 
 // 現在の state でボード全体を描き直す
@@ -321,7 +442,7 @@ async function loadFromFile() {
   if (state.notes.length && !confirm('現在のボードを読み込んだ内容で置き換えますか？')) return;
   state = { background: data.background || DEFAULT_BG, notes: data.notes };
   renderAll();
-  save();
+  flushSave();
 }
 
 saveButton.addEventListener('click', saveToFile);
