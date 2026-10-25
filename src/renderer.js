@@ -4,6 +4,12 @@ const DEFAULT_BG = '#2f5d3a';
 const STORAGE_KEY = 'fusenkokuban';
 const MIN_W = 60;
 const MIN_H = 40;
+const DEFAULT_NOTE_COLOR = '#fff59d';
+const DEFAULT_TEXT_COLOR = '#222222';
+const DEFAULT_FONT_SIZE = 15;
+const NOTE_COLORS = ['#fff59d', '#ffcc80', '#f8bbd0', '#b3e5fc', '#c5e1a5', '#ffffff'];
+const FONT_SIZES = [12, 15, 18, 24, 32, 48];
+const STYLE_BAR_SPACE = 40; // 付箋の上にスタイルバーを出せる最小の余白
 
 const board = document.getElementById('board');
 const bgInput = document.getElementById('bg-color');
@@ -48,6 +54,88 @@ function applyRect(note, el) {
   el.style.top = note.y + 'px';
   el.style.width = note.w + 'px';
   el.style.height = note.h + 'px';
+  // 画面上端に近いときはスタイルバーを付箋の下側に出す
+  el.classList.toggle('bar-below', note.y < STYLE_BAR_SPACE);
+}
+
+function applyStyle(note, el) {
+  const text = el.querySelector('.note-text');
+  el.style.background = note.color || DEFAULT_NOTE_COLOR;
+  text.style.color = note.textColor || DEFAULT_TEXT_COLOR;
+  text.style.fontSize = (note.fontSize || DEFAULT_FONT_SIZE) + 'px';
+}
+
+// 選択中の付箋に表示する、背景色・文字色・文字サイズの変更バー
+function createStyleBar(note, el) {
+  const bar = document.createElement('div');
+  bar.className = 'note-style';
+
+  const update = (patch) => {
+    Object.assign(note, patch);
+    applyStyle(note, el);
+    sync();
+    save();
+  };
+
+  const swatches = NOTE_COLORS.map((color) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch';
+    b.title = '付箋の色';
+    b.dataset.color = color;
+    b.style.background = color;
+    b.addEventListener('click', () => update({ color }));
+    return b;
+  });
+
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorInput.className = 'note-color';
+  colorInput.title = '付箋の色（自由に選ぶ）';
+  colorInput.addEventListener('input', () => update({ color: colorInput.value }));
+
+  const textColorLabel = document.createElement('label');
+  textColorLabel.className = 'text-color';
+  textColorLabel.title = '文字の色';
+  textColorLabel.textContent = 'A';
+  const textColorInput = document.createElement('input');
+  textColorInput.type = 'color';
+  textColorInput.className = 'note-text-color';
+  textColorInput.addEventListener('input', () => update({ textColor: textColorInput.value }));
+  textColorLabel.appendChild(textColorInput);
+
+  const sizeSelect = document.createElement('select');
+  sizeSelect.className = 'note-font-size';
+  sizeSelect.title = '文字の大きさ';
+  for (const size of FONT_SIZES) {
+    const opt = document.createElement('option');
+    opt.value = size;
+    opt.textContent = size + 'px';
+    sizeSelect.appendChild(opt);
+  }
+  sizeSelect.addEventListener('change', () => update({ fontSize: Number(sizeSelect.value) }));
+
+  // 現在の設定をコントロールに反映する
+  const sync = () => {
+    const color = note.color || DEFAULT_NOTE_COLOR;
+    swatches.forEach((b) => b.classList.toggle('active', b.dataset.color === color));
+    colorInput.value = color;
+    textColorInput.value = note.textColor || DEFAULT_TEXT_COLOR;
+    const size = note.fontSize || DEFAULT_FONT_SIZE;
+    if (!FONT_SIZES.includes(size)) {
+      const opt = document.createElement('option');
+      opt.value = size;
+      opt.textContent = size + 'px';
+      sizeSelect.appendChild(opt);
+    }
+    sizeSelect.value = size;
+  };
+  sync();
+
+  bar.append(...swatches, colorInput, textColorLabel, sizeSelect);
+  // バー上の操作でドラッグや付箋作成が始まらないようにする
+  bar.addEventListener('pointerdown', (e) => e.stopPropagation());
+  return bar;
 }
 
 // ヘッダー/リサイズハンドルのドラッグ処理。onMove(dx, dy, start) で付箋の矩形を更新する
@@ -124,7 +212,8 @@ function renderNote(note) {
   close.title = '削除';
   close.textContent = '×';
 
-  el.append(text, ...edges, grip, close);
+  el.append(text, ...edges, grip, close, createStyleBar(note, el));
+  applyStyle(note, el);
   for (const dir of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
     const r = document.createElement('div');
     r.className = 'resizer ' + dir;
@@ -168,6 +257,9 @@ function createNote(x, y) {
     x, y, w: 220, h: 180,
     z: ++topZ,
     text: '',
+    color: DEFAULT_NOTE_COLOR,
+    textColor: DEFAULT_TEXT_COLOR,
+    fontSize: DEFAULT_FONT_SIZE,
   };
   state.notes.push(note);
   save();
