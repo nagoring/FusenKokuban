@@ -54,11 +54,13 @@ npm run dist
 `package.json` の `version` を上げてコミットし、`v<版>` のタグを push すると、3OS分をビルドして Releases に公開します。
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-タグを push する代わりに、Actions 画面の「Build」→「Run workflow」で `release_tag` に `v0.1.0` のようなタグ名を入れて実行しても公開できます。
+リリースノートの変更点は `docs/releases/v<版>.md` に書いておくと自動で載ります。
+
+タグを push する代わりに、Actions 画面の「Build」→「Run workflow」で `release_tag` に `v0.2.0` のようなタグ名を入れて実行しても公開できます。
 
 ## テスト
 
