@@ -32,57 +32,91 @@ html, body {
 
 .note {
   position: absolute;
-  display: flex;
-  flex-direction: column;
-  min-width: 120px;
-  min-height: 80px;
+  min-width: 60px;
+  min-height: 40px;
   background: #fff59d;
   border-radius: 3px;
   box-shadow: 2px 4px 10px rgba(0, 0, 0, 0.4);
 }
 
-.note-header {
-  flex: 0 0 22px;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 0 4px;
-  background: rgba(0, 0, 0, 0.08);
-  cursor: move;
-  user-select: none;
-}
-.note-close {
-  border: none;
-  background: none;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  color: #555;
-}
-.note-close:hover { color: #c00; }
-
 .note-text {
-  flex: 1;
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
   border: none;
   outline: none;
   resize: none;
-  padding: 8px;
+  padding: 10px 14px;
   background: transparent;
   font: inherit;
   font-size: 15px;
   color: #222;
 }
 
-.resizer { position: absolute; z-index: 1; }
-.resizer.n, .resizer.s { left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
-.resizer.e, .resizer.w { top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
-.resizer.n { top: -3px; }
-.resizer.s { bottom: -3px; }
-.resizer.e { right: -3px; }
-.resizer.w { left: -3px; }
-.resizer.ne, .resizer.nw, .resizer.se, .resizer.sw { width: 12px; height: 12px; }
-.resizer.ne { top: -4px; right: -4px; cursor: nesw-resize; }
-.resizer.sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
-.resizer.nw { top: -4px; left: -4px; cursor: nwse-resize; }
-.resizer.se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+.note.selected { outline: 1px solid #1a73e8; }
+
+/* 枠線部分（ドラッグで移動） */
+.note-edge { position: absolute; z-index: 1; cursor: move; }
+.note-edge.top    { top: 0; left: 0; right: 0; height: 6px; }
+.note-edge.bottom { bottom: 0; left: 0; right: 0; height: 6px; }
+.note-edge.left   { top: 0; bottom: 0; left: 0; width: 6px; }
+.note-edge.right  { top: 0; bottom: 0; right: 0; width: 6px; }
+
+.note-grip,
+.note-close,
+.resizer { display: none; }
+.note.selected .note-grip,
+.note.selected .note-close,
+.note.selected .resizer { display: block; }
+
+.note-grip {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  left: 2px;
+  width: 12px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: #888;
+  cursor: move;
+  user-select: none;
+}
+
+.note-close {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.1);
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+  color: #555;
+}
+.note-close:hover { background: #d33; color: #fff; }
+
+/* 8か所のリサイズハンドル */
+.resizer {
+  position: absolute;
+  z-index: 2;
+  width: 9px;
+  height: 9px;
+  background: #1a73e8;
+  border: 1px solid #fff;
+}
+.resizer.nw { top: -5px; left: -5px; cursor: nwse-resize; }
+.resizer.n  { top: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+.resizer.ne { top: -5px; right: -5px; cursor: nesw-resize; }
+.resizer.e  { top: calc(50% - 5px); right: -5px; cursor: ew-resize; }
+.resizer.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.resizer.s  { bottom: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+.resizer.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.resizer.w  { top: calc(50% - 5px); left: -5px; cursor: ew-resize; }

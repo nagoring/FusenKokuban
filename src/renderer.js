@@ -2,8 +2,8 @@
 
 const DEFAULT_BG = '#2f5d3a';
 const STORAGE_KEY = 'fusenkokuban';
-const MIN_W = 120;
-const MIN_H = 80;
+const MIN_W = 60;
+const MIN_H = 40;
 
 const board = document.getElementById('board');
 const bgInput = document.getElementById('bg-color');
@@ -88,6 +88,13 @@ function resizeBy(dir, note, dx, dy, start) {
   }
 }
 
+function select(el) {
+  document.querySelectorAll('.note.selected').forEach((n) => {
+    if (n !== el) n.classList.remove('selected');
+  });
+  if (el) el.classList.add('selected');
+}
+
 function renderNote(note) {
   const el = document.createElement('div');
   el.className = 'note';
@@ -95,21 +102,29 @@ function renderNote(note) {
   el.style.zIndex = note.z;
   applyRect(note, el);
 
-  const header = document.createElement('div');
-  header.className = 'note-header';
-  const close = document.createElement('button');
-  close.className = 'note-close';
-  close.type = 'button';
-  close.title = '削除';
-  close.textContent = '×';
-  header.appendChild(close);
-
   const text = document.createElement('textarea');
   text.className = 'note-text';
   text.value = note.text;
   text.spellcheck = false;
 
-  el.append(header, text);
+  // 移動用：左上のグリップと枠線部分
+  const grip = document.createElement('div');
+  grip.className = 'note-grip';
+  grip.title = 'ドラッグで移動';
+  grip.textContent = '⠿';
+  const edges = ['top', 'bottom', 'left', 'right'].map((side) => {
+    const edge = document.createElement('div');
+    edge.className = 'note-edge ' + side;
+    return edge;
+  });
+
+  const close = document.createElement('button');
+  close.className = 'note-close';
+  close.type = 'button';
+  close.title = '削除';
+  close.textContent = '×';
+
+  el.append(text, ...edges, grip, close);
   for (const dir of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
     const r = document.createElement('div');
     r.className = 'resizer ' + dir;
@@ -118,14 +133,14 @@ function renderNote(note) {
     el.appendChild(r);
   }
 
-  header.addEventListener('pointerdown', (e) => {
-    if (e.target === close) return;
-    startDrag(e, note, el, (dx, dy, start) => {
-      note.x = start.x + dx;
-      note.y = start.y + dy;
-    });
+  const startMove = (e) => startDrag(e, note, el, (dx, dy, start) => {
+    note.x = start.x + dx;
+    note.y = start.y + dy;
   });
+  grip.addEventListener('pointerdown', startMove);
+  edges.forEach((edge) => edge.addEventListener('pointerdown', startMove));
 
+  close.addEventListener('pointerdown', (e) => e.stopPropagation());
   close.addEventListener('click', () => {
     if (note.text && !confirm('この付箋を削除しますか？')) return;
     state.notes = state.notes.filter((n) => n.id !== note.id);
@@ -137,7 +152,10 @@ function renderNote(note) {
     note.text = text.value;
     save();
   });
-  el.addEventListener('pointerdown', () => bringToFront(note, el), true);
+  el.addEventListener('pointerdown', () => {
+    bringToFront(note, el);
+    select(el);
+  }, true);
   el.addEventListener('dblclick', (e) => e.stopPropagation());
 
   board.appendChild(el);
@@ -154,8 +172,13 @@ function createNote(x, y) {
   state.notes.push(note);
   save();
   const el = renderNote(note);
+  select(el);
   el.querySelector('.note-text').focus();
 }
+
+board.addEventListener('pointerdown', (e) => {
+  if (e.target === board) select(null);
+});
 
 board.addEventListener('dblclick', (e) => {
   if (e.target !== board) return;

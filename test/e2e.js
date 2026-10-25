@@ -29,37 +29,61 @@ const path = require('path');
   await page.keyboard.type('こんにちは hello');
   assert.strictEqual(await page.inputValue('.note-text'), 'こんにちは hello');
 
-  // 移動
-  let box = await note.boundingBox();
-  const hb = await page.locator('.note-header').boundingBox();
-  await page.mouse.move(hb.x + 20, hb.y + 10);
-  await page.mouse.down();
-  await page.mouse.move(hb.x + 120, hb.y + 60, { steps: 5 });
-  await page.mouse.up();
-  let box2 = await note.boundingBox();
-  assert.strictEqual(Math.round(box2.x - box.x), 100);
-  assert.strictEqual(Math.round(box2.y - box.y), 50);
+  // タイトルバーは無い
+  assert.strictEqual(await page.locator('.note-header').count(), 0);
 
-  // 右下に広げる
-  const se = await page.locator('.resizer.se').boundingBox();
-  await page.mouse.move(se.x + 6, se.y + 6);
-  await page.mouse.down();
-  await page.mouse.move(se.x + 56, se.y + 36, { steps: 5 });
-  await page.mouse.up();
-  let box3 = await note.boundingBox();
-  assert.strictEqual(Math.round(box3.width - box2.width), 50);
-  assert.strictEqual(Math.round(box3.height - box2.height), 30);
+  const drag = async (sel, dx, dy, fx = 0.5) => {
+    const b = await page.locator(sel).boundingBox();
+    const x = b.x + b.width * fx;
+    const y = b.y + b.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y + dy, { steps: 5 });
+    await page.mouse.up();
+  };
+  const rect = async () => {
+    const b = await note.boundingBox();
+    return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) };
+  };
 
-  // 左上に広げる（位置も動く）
-  const nw = await page.locator('.resizer.nw').boundingBox();
-  await page.mouse.move(nw.x + 6, nw.y + 6);
-  await page.mouse.down();
-  await page.mouse.move(nw.x - 34, nw.y - 14, { steps: 5 });
-  await page.mouse.up();
-  let box4 = await note.boundingBox();
-  assert.strictEqual(Math.round(box4.width - box3.width), 40);
-  assert.strictEqual(Math.round(box4.height - box3.height), 20);
-  assert.strictEqual(Math.round(box3.x - box4.x), 40);
+  // グリップで移動
+  let r0 = await rect();
+  await drag('.note-grip', 100, 50);
+  let r1 = await rect();
+  assert.deepStrictEqual(r1, { x: r0.x + 100, y: r0.y + 50, w: r0.w, h: r0.h });
+
+  // 枠線（下辺）で移動
+  await drag('.note-edge.bottom', -30, 20, 0.25);
+  r0 = r1;
+  r1 = await rect();
+  assert.deepStrictEqual(r1, { x: r0.x - 30, y: r0.y + 20, w: r0.w, h: r0.h });
+
+  // 8か所のハンドルで拡大・縮小
+  const cases = {
+    e:  [30, 0,   { dw: 30, dh: 0, dx: 0, dy: 0 }],
+    w:  [-30, 0,  { dw: 30, dh: 0, dx: -30, dy: 0 }],
+    s:  [0, 20,   { dw: 0, dh: 20, dx: 0, dy: 0 }],
+    n:  [0, -20,  { dw: 0, dh: 20, dx: 0, dy: -20 }],
+    se: [-40, -30, { dw: -40, dh: -30, dx: 0, dy: 0 }],
+    nw: [20, 10,  { dw: -20, dh: -10, dx: 20, dy: 10 }],
+    ne: [25, -15, { dw: 25, dh: 15, dx: 0, dy: -15 }],
+    sw: [-25, 15, { dw: 25, dh: 15, dx: -25, dy: 0 }],
+  };
+  for (const [dir, [mx, my, exp]] of Object.entries(cases)) {
+    const before = await rect();
+    await drag('.resizer.' + dir, mx, my);
+    const after = await rect();
+    assert.deepStrictEqual(
+      { dw: after.w - before.w, dh: after.h - before.h, dx: after.x - before.x, dy: after.y - before.y },
+      exp, 'resize ' + dir);
+  }
+
+  // 選択中のスクショ
+  await page.screenshot({ path: path.join(userData, 'selected.png') });
+
+  // 背景クリックで選択解除するとハンドルが消える
+  await page.mouse.click(1000, 700);
+  assert.strictEqual(await page.locator('.resizer.se').isVisible(), false);
 
   // 背景色変更
   await page.$eval('#bg-color', (el) => {
