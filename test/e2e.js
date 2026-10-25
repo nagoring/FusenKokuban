@@ -331,6 +331,71 @@ const path = require('path');
   assert.strictEqual(texts[0].text, '1行目\n<b>2行目</b>', '旧形式の文字はそのまま表示');
   assert.strictEqual(texts[1].html, '<span style="color: red;">赤</span>', '不要なタグ・属性・書式は除去');
   assert.strictEqual(await page.evaluate(() => window.hacked), undefined);
+
+  // ---- 元に戻す・やり直し（#12） ----
+  // ファイル読み込みも取り消せる
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(() => document.querySelectorAll('.note').length === 3);
+  await page.keyboard.press('Control+y');
+  await page.waitForFunction(() => document.querySelectorAll('.note').length === 2);
+
+  const count = () => page.locator('.note').count();
+  const lastText = () => page.$eval('.note:last-of-type .note-text', (el) => el.innerText);
+  await page.mouse.dblclick(700, 500);
+  assert.strictEqual(await count(), 3);
+  await page.keyboard.type('abc');
+  await page.waitForTimeout(1100); // 間が空いた入力は別の1回として記録される
+  await page.keyboard.type('def');
+  assert.strictEqual(await lastText(), 'abcdef');
+
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await lastText(), 'abc', '続けて打った文字はまとめて戻る');
+  await page.keyboard.type('X');
+  assert.strictEqual(await lastText(), 'abcX', '戻したあとも同じ付箋に入力を続けられる');
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await lastText(), '');
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await count(), 2, '付箋の作成を取り消す');
+
+  await page.keyboard.press('Control+y');
+  assert.strictEqual(await count(), 3);
+  await page.keyboard.press('Control+Shift+z');
+  assert.strictEqual(await lastText(), 'abc', 'Ctrl+Shift+Z でもやり直せる');
+
+  // 付箋を消しても戻せる（Mac の Cmd に相当する Meta でも動く）
+  await page.click('.note:last-of-type');
+  await page.click('.note:last-of-type .note-close');
+  assert.strictEqual(await count(), 2);
+  await page.keyboard.press('Meta+z');
+  assert.strictEqual(await count(), 3);
+  assert.strictEqual(await lastText(), 'abc', '消した付箋が内容ごと戻る');
+  await page.keyboard.press('Meta+Shift+z');
+  assert.strictEqual(await count(), 2);
+  await page.keyboard.press('Meta+z');
+
+  // 移動・色の変更も戻せる
+  await page.click('.note:last-of-type .note-text');
+  const pos = () => page.$eval('.note:last-of-type', (el) => [el.offsetLeft, el.offsetTop]);
+  const p0 = await pos();
+  await drag('.note:last-of-type .note-grip', 60, 40);
+  assert.deepStrictEqual(await pos(), [p0[0] + 60, p0[1] + 40]);
+  await page.click('.note:last-of-type .note-style .swatch[data-color="#b3e5fc"]');
+  const bgOf = () => page.$eval('.note:last-of-type', (el) => getComputedStyle(el).backgroundColor);
+  assert.strictEqual(await bgOf(), 'rgb(179, 229, 252)');
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await bgOf(), 'rgb(255, 245, 157)');
+  await page.keyboard.press('Control+z');
+  assert.deepStrictEqual(await pos(), p0);
+
+  // 再起動後も戻した状態が保存されている
+  await page.waitForTimeout(500);
+  await app.close();
+  app = await launch();
+  page = await app.firstWindow();
+  await page.waitForSelector('.note');
+  assert.strictEqual(await page.locator('.note').count(), 3);
+  assert.strictEqual(await page.$eval('.note:last-of-type .note-text', (el) => el.innerText), 'abc');
   await app.close();
 
   console.log('OK: all e2e checks passed (screenshot: ' + path.join(userData, 'shot.png') + ')');

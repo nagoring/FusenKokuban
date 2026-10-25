@@ -58,6 +58,54 @@ window.addEventListener('beforeunload', () => {
   }
 });
 
+// ---- 元に戻す・やり直し ----
+// 変更の直前に state の写しを積む。画像などの文字列は共有されるので写しは軽い
+const HISTORY_LIMIT = 100;
+const GROUP_MS = 1000; // 同じ操作が続く間（文字入力・色選び）は1回分にまとめる
+const undoStack = [];
+const redoStack = [];
+let lastRecord = { key: null, time: 0 };
+
+function snapshot() {
+  return { background: state.background, notes: state.notes.map((n) => ({ ...n })) };
+}
+
+// 変更する直前に呼ぶ。key を渡すと、同じ key が続く間は最初の1回だけ記録する
+function recordHistory(key = null) {
+  const now = Date.now();
+  const grouped = key && key === lastRecord.key && now - lastRecord.time < GROUP_MS;
+  lastRecord = { key, time: now };
+  if (grouped) return;
+  undoStack.push(snapshot());
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  redoStack.length = 0;
+}
+
+function restore(from, to) {
+  if (!from.length) return;
+  // 文字入力中なら、戻したあとも同じ付箋の入力を続けられるようにする
+  const focusedId = document.activeElement?.closest?.('.note')?.dataset.id;
+  to.push(snapshot());
+  state = from.pop();
+  lastRecord = { key: null, time: 0 };
+  renderAll();
+  flushSave();
+  const el = focusedId && board.querySelector(`.note[data-id="${focusedId}"]`);
+  if (el) {
+    select(el);
+    const editor = el.querySelector('.note-text');
+    if (editor) {
+      editor.focus();
+      const sel = window.getSelection();
+      sel.selectAllChildren(editor);
+      sel.collapseToEnd();
+    }
+  }
+}
+
+const undo = () => restore(undoStack, redoStack);
+const redo = () => restore(redoStack, undoStack);
+
 // ---- 背景色 ----
 function setBackground(color) {
   state.background = color;
@@ -66,8 +114,14 @@ function setBackground(color) {
   save();
 }
 
-bgInput.addEventListener('input', () => setBackground(bgInput.value));
-bgReset.addEventListener('click', () => setBackground(DEFAULT_BG));
+bgInput.addEventListener('input', () => {
+  recordHistory('background');
+  setBackground(bgInput.value);
+});
+bgReset.addEventListener('click', () => {
+  recordHistory();
+  setBackground(DEFAULT_BG);
+});
 
 // ---- 付箋 ----
 function bringToFront(note, el) {
@@ -161,6 +215,7 @@ document.addEventListener('selectionchange', () => {
 function formatSelection(editor, prop, value) {
   const range = savedRanges.get(editor);
   if (!range || range.collapsed || !editor.contains(range.commonAncestorContainer)) return false;
+  recordHistory('format:' + prop);
   // 直前に書式を付けた部分をそのまま選んでいるなら、その要素の書式を変えるだけにする
   const node = range.startContainer;
   if (node === range.endContainer && node.tagName === 'SPAN' && node !== editor
@@ -196,6 +251,7 @@ function createStyleBar(note, el) {
   const editor = el.querySelector('.note-text');
 
   const update = (patch) => {
+    recordHistory('style:' + note.id + ':' + Object.keys(patch).join());
     Object.assign(note, patch);
     applyStyle(note, el);
     sync();
@@ -279,7 +335,12 @@ function startDrag(e, note, el, onMove) {
   const target = e.currentTarget;
   target.setPointerCapture(e.pointerId);
 
+  let moved = false;
   const move = (ev) => {
+    if (!moved) {
+      moved = true;
+      recordHistory();
+    }
     onMove(ev.clientX - startX, ev.clientY - startY, start);
     applyRect(note, el);
   };
@@ -287,7 +348,7 @@ function startDrag(e, note, el, onMove) {
     target.removeEventListener('pointermove', move);
     target.removeEventListener('pointerup', up);
     target.removeEventListener('pointercancel', up);
-    save();
+    if (moved) save();
   };
   target.addEventListener('pointermove', move);
   target.addEventListener('pointerup', up);
@@ -343,6 +404,7 @@ function renderNote(note) {
     content.contentEditable = 'true';
     content.spellcheck = false;
     content.innerHTML = noteHtml(note);
+    content.addEventListener('beforeinput', () => recordHistory('text:' + note.id));
     content.addEventListener('input', () => {
       note.html = content.innerHTML;
       note.text = content.innerText;
@@ -396,7 +458,7 @@ function renderNote(note) {
 
   close.addEventListener('pointerdown', (e) => e.stopPropagation());
   close.addEventListener('click', () => {
-    if ((isImage || (note.text || '').trim()) && !confirm('この付箋を削除しますか？')) return;
+    recordHistory();
     state.notes = state.notes.filter((n) => n.id !== note.id);
     el.remove();
     save();
@@ -427,6 +489,7 @@ function createNote(x, y) {
     textColor: DEFAULT_TEXT_COLOR,
     fontSize: DEFAULT_FONT_SIZE,
   };
+  recordHistory();
   state.notes.push(note);
   save();
   const el = renderNote(note);
@@ -490,6 +553,7 @@ async function createImageNote(file, x, y) {
     z: ++topZ,
     image,
   };
+  recordHistory();
   state.notes.push(note);
   save();
   select(renderNote(note));
@@ -557,6 +621,7 @@ async function loadFromFile() {
     return;
   }
   if (state.notes.length && !confirm('現在のボードを読み込んだ内容で置き換えますか？')) return;
+  recordHistory();
   state = { background: data.background || DEFAULT_BG, notes: data.notes };
   renderAll();
   flushSave();
@@ -565,8 +630,22 @@ async function loadFromFile() {
 saveButton.addEventListener('click', saveToFile);
 loadButton.addEventListener('click', loadFromFile);
 document.addEventListener('keydown', (e) => {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
   const key = e.key.toLowerCase();
+  // 元に戻す: Ctrl/Cmd+Z、やり直し: Ctrl/Cmd+Y または Ctrl/Cmd+Shift+Z
+  // 文字入力中もブラウザ標準の取り消しではなく、ボード全体の履歴で戻す
+  if (key === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) redo();
+    else undo();
+    return;
+  }
+  if (key === 'y' && !e.shiftKey) {
+    e.preventDefault();
+    redo();
+    return;
+  }
+  if (e.shiftKey) return;
   if (key === 's') {
     e.preventDefault();
     saveToFile();
