@@ -17,13 +17,13 @@
 
 ## ダウンロード
 
-GitHub の Actions → `Build` ワークフローの実行結果ページ下部「Artifacts」から各OS版をダウンロードできます。
+[Releases ページ](https://github.com/nagoring/FusenKokuban/releases/latest) から各OS版をダウンロードできます。
 
 | OS | ファイル |
 | --- | --- |
-| Windows | `FusenKokuban-windows-latest`（インストーラ `.exe`） |
-| macOS | `FusenKokuban-macos-latest`（`.dmg`、Intel / Apple Silicon 両対応） |
-| Linux | `FusenKokuban-ubuntu-latest`（`.AppImage`） |
+| Windows | `FusenKokuban-<版>-win-x64.exe`（インストーラ） |
+| macOS | `FusenKokuban-<版>-mac-universal.dmg`（Intel / Apple Silicon 両対応） |
+| Linux | `FusenKokuban-<版>-linux-x86_64.AppImage` |
 
 コード署名をしていないため、初回起動時に警告が出ます。
 
@@ -45,6 +45,15 @@ npm run dist
 ```
 
 `dist/` に各OS向けのインストーラ（Windows: NSIS / macOS: dmg / Linux: AppImage）が出力されます。各OSのパッケージはそのOS上でビルドしてください（GitHub Actions の `Build` ワークフローで3OS分をまとめて作成できます）。
+
+### リリース手順
+
+`package.json` の `version` を上げてコミットし、`v<版>` のタグを push すると、3OS分をビルドして Releases に公開します。
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 ## テスト
 

@@ -5,6 +5,9 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -25,3 +28,24 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.AppImage
+
+  # タグ push 時は GitHub Releases に実行ファイルを公開する
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          body: |
+            ## ダウンロード
+            - **Windows**: `FusenKokuban-*-win-x64.exe`（インストーラ）
+            - **macOS**: `FusenKokuban-*-mac-universal.dmg`（Intel / Apple Silicon 両対応）
+            - **Linux**: `FusenKokuban-*-linux-x86_64.AppImage`
+
+            コード署名をしていないため、初回起動時に警告が出ます。回避手順は README を参照してください。
