@@ -164,3 +164,46 @@ html, body {
 .resizer.s  { bottom: -5px; left: calc(50% - 5px); cursor: ns-resize; }
 .resizer.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
 .resizer.w  { top: calc(50% - 5px); left: -5px; cursor: ew-resize; }
+
+/* 右クリックメニュー */
+#context-menu {
+  position: fixed;
+  z-index: 200000;
+  min-width: 200px;
+  padding: 4px 0;
+  border-radius: 6px;
+  background: #fff;
+  color: #222;
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  user-select: none;
+}
+#context-menu[hidden] { display: none; }
+#context-menu .menu-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+}
+#context-menu .menu-label { flex: 1; margin-right: 8px; white-space: nowrap; }
+#context-menu .menu-action { cursor: pointer; }
+#context-menu .menu-action:hover { background: #e8f0fe; }
+#context-menu .menu-close { border-top: 1px solid #eee; margin-top: 2px; color: #c62828; }
+#context-menu .swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 50%;
+  cursor: pointer;
+}
+#context-menu .swatch.active { outline: 2px solid #1a73e8; outline-offset: 1px; }
+#context-menu .edge {
+  min-width: 26px;
+  padding: 2px 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f7f7f7;
+  cursor: pointer;
+}
+#context-menu .edge:hover { background: #e8f0fe; }

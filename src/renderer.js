@@ -88,6 +88,7 @@ function restore(from, to) {
   to.push(snapshot());
   state = from.pop();
   lastRecord = { key: null, time: 0 };
+  closeContextMenu();
   renderAll();
   flushSave();
   const el = focusedId && board.querySelector(`.note[data-id="${focusedId}"]`);
@@ -318,6 +319,8 @@ function createStyleBar(note, el) {
     sizeSelect.value = size;
   };
   sync();
+  // 右クリックメニューなど、バーの外から色を変えたときに表示を合わせる
+  el.syncStyleBar = sync;
 
   bar.append(...swatches, colorInput, textColorLabel, sizeSelect);
   // バー上の操作でドラッグや付箋作成が始まらないようにする
@@ -457,11 +460,12 @@ function renderNote(note) {
   if (isImage) content.addEventListener('pointerdown', startMove);
 
   close.addEventListener('pointerdown', (e) => e.stopPropagation());
-  close.addEventListener('click', () => {
-    recordHistory();
-    state.notes = state.notes.filter((n) => n.id !== note.id);
-    el.remove();
-    save();
+  close.addEventListener('click', () => deleteNote(note, el));
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    bringToFront(note, el);
+    select(el);
+    openContextMenu(note, el, e.clientX, e.clientY);
   });
 
   el.addEventListener('pointerdown', () => {
@@ -473,6 +477,108 @@ function renderNote(note) {
   board.appendChild(el);
   return el;
 }
+
+function deleteNote(note, el) {
+  recordHistory();
+  state.notes = state.notes.filter((n) => n.id !== note.id);
+  el.remove();
+  save();
+}
+
+function setNoteColor(note, el, color) {
+  recordHistory();
+  note.color = color;
+  applyStyle(note, el);
+  if (el.syncStyleBar) el.syncStyleBar();
+  save();
+}
+
+// 付箋をウィンドウの端（left / right / top / bottom）に寄せる
+const EDGE_MARGIN = 10;
+function moveToEdge(note, el, side) {
+  recordHistory();
+  if (side === 'left') note.x = EDGE_MARGIN;
+  if (side === 'right') note.x = window.innerWidth - note.w - EDGE_MARGIN;
+  if (side === 'top') note.y = EDGE_MARGIN;
+  if (side === 'bottom') note.y = window.innerHeight - note.h - EDGE_MARGIN;
+  applyRect(note, el);
+  save();
+}
+
+// ---- 右クリックメニュー ----
+const contextMenu = document.createElement('div');
+contextMenu.id = 'context-menu';
+contextMenu.hidden = true;
+document.body.appendChild(contextMenu);
+
+function closeContextMenu() {
+  contextMenu.hidden = true;
+  contextMenu.replaceChildren();
+}
+
+function openContextMenu(note, el, x, y) {
+  closeContextMenu();
+  const item = (label, ...children) => {
+    const row = document.createElement('div');
+    row.className = 'menu-row';
+    const name = document.createElement('span');
+    name.className = 'menu-label';
+    name.textContent = label;
+    row.append(name, ...children);
+    contextMenu.appendChild(row);
+    return row;
+  };
+  const button = (text, title, onClick, className = '') => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = className;
+    b.textContent = text;
+    b.title = title;
+    b.addEventListener('click', () => {
+      closeContextMenu();
+      onClick();
+    });
+    return b;
+  };
+
+  if (note.type !== 'image') {
+    item('色を変える', ...NOTE_COLORS.map((color) => {
+      const b = button('', color, () => setNoteColor(note, el, color), 'swatch');
+      b.dataset.color = color;
+      b.style.background = color;
+      b.classList.toggle('active', (note.color || DEFAULT_NOTE_COLOR) === color);
+      return b;
+    }));
+  }
+  item('端に寄せる', ...[['left', '左', '左端に寄せる'], ['right', '右', '右端に寄せる'],
+    ['top', '上', '上端に寄せる'], ['bottom', '下', '下端に寄せる']]
+    .map(([side, text, title]) => {
+      const b = button(text, title, () => moveToEdge(note, el, side), 'edge');
+      b.dataset.side = side;
+      return b;
+    }));
+  const closeRow = item('付箋を閉じる');
+  closeRow.classList.add('menu-action', 'menu-close');
+  closeRow.addEventListener('click', () => {
+    closeContextMenu();
+    deleteNote(note, el);
+  });
+
+  contextMenu.hidden = false;
+  // 画面からはみ出さない位置に出す
+  const { width, height } = contextMenu.getBoundingClientRect();
+  contextMenu.style.left = Math.max(0, Math.min(x, window.innerWidth - width - 4)) + 'px';
+  contextMenu.style.top = Math.max(0, Math.min(y, window.innerHeight - height - 4)) + 'px';
+}
+
+contextMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
+contextMenu.addEventListener('contextmenu', (e) => e.preventDefault());
+document.addEventListener('pointerdown', closeContextMenu);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeContextMenu();
+});
+window.addEventListener('resize', closeContextMenu);
+window.addEventListener('blur', closeContextMenu);
 
 function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
