@@ -14,7 +14,23 @@
 - 「×」で付箋を削除
 - 付箋と背景色は自動保存され、次回起動時に復元
 
-## 使い方
+## ダウンロード
+
+GitHub の Actions → `Build` ワークフローの実行結果ページ下部「Artifacts」から各OS版をダウンロードできます。
+
+| OS | ファイル |
+| --- | --- |
+| Windows | `FusenKokuban-windows-latest`（インストーラ `.exe`） |
+| macOS | `FusenKokuban-macos-latest`（`.dmg`、Intel / Apple Silicon 両対応） |
+| Linux | `FusenKokuban-ubuntu-latest`（`.AppImage`） |
+
+コード署名をしていないため、初回起動時に警告が出ます。
+
+- **Windows**: 「WindowsによってPCが保護されました」→「詳細情報」→「実行」
+- **macOS**: アプリを「アプリケーション」へコピー後、ターミナルで `xattr -cr /Applications/FusenKokuban.app` を実行してから起動
+- **Linux**: `chmod +x FusenKokuban-*.AppImage` してから実行
+
+## 開発用の起動方法
 
 ```sh
 npm install
