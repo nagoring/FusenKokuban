@@ -78,6 +78,19 @@ const path = require('path');
       exp, 'resize ' + dir);
   }
 
+  // 付箋の色・文字色・文字サイズ変更
+  assert.strictEqual(await page.locator('.note-style').isVisible(), true);
+  await page.click('.note-style .swatch[data-color="#f8bbd0"]');
+  assert.strictEqual(await note.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
+  await page.$eval('.note-text-color', (el) => {
+    el.value = '#c62828';
+    el.dispatchEvent(new Event('input'));
+  });
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(198, 40, 40)');
+  await page.selectOption('.note-font-size', '24');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
+  assert.strictEqual(await note.count(), 1, 'スタイル変更で付箋が増えない');
+
   // 選択中のスクショ
   await page.screenshot({ path: path.join(userData, 'selected.png') });
 
@@ -101,6 +114,9 @@ const path = require('path');
   await page.waitForSelector('.note');
   assert.strictEqual(await page.inputValue('.note-text'), 'こんにちは hello');
   assert.strictEqual(await page.$eval('#board', (el) => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 86)');
+  assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(198, 40, 40)');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
   await app.close();
 
   console.log('OK: all e2e checks passed (screenshot: ' + path.join(userData, 'shot.png') + ')');

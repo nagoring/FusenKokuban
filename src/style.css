@@ -65,10 +65,41 @@ html, body {
 
 .note-grip,
 .note-close,
+.note-style,
 .resizer { display: none; }
 .note.selected .note-grip,
 .note.selected .note-close,
 .note.selected .resizer { display: block; }
+.note.selected .note-style { display: flex; }
+
+/* 付箋の色・文字色・文字サイズの変更バー（選択中のみ表示） */
+.note-style {
+  position: absolute;
+  z-index: 3;
+  bottom: calc(100% + 8px);
+  left: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.note.bar-below .note-style { bottom: auto; top: calc(100% + 8px); }
+.note-style .swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.note-style .swatch.active { outline: 2px solid #fff; outline-offset: 1px; }
+.note-style input[type="color"] { width: 24px; height: 20px; border: none; padding: 0; background: none; cursor: pointer; }
+.note-style .text-color { display: flex; align-items: center; gap: 2px; margin-left: 4px; font-weight: bold; cursor: pointer; }
+.note-style select { font-size: 12px; }
 
 .note-grip {
   position: absolute;
