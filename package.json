@@ -28,6 +28,7 @@
     "productName": "FusenKokuban",
     "files": [
       "main.js",
+      "preload.js",
       "src/**/*"
     ],
     "win": {

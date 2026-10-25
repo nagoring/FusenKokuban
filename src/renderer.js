@@ -15,8 +15,11 @@ const board = document.getElementById('board');
 const bgInput = document.getElementById('bg-color');
 const bgReset = document.getElementById('bg-reset');
 
+const FILE_FORMAT = 'fusenkokuban';
+const FILE_VERSION = 1;
+
 let state = load();
-let topZ = state.notes.reduce((z, n) => Math.max(z, n.z || 0), 0);
+let topZ = 0;
 
 function load() {
   try {
@@ -277,6 +280,63 @@ board.addEventListener('dblclick', (e) => {
   createNote(e.clientX, e.clientY);
 });
 
+// 現在の state でボード全体を描き直す
+function renderAll() {
+  board.querySelectorAll('.note').forEach((el) => el.remove());
+  topZ = state.notes.reduce((z, n) => Math.max(z, n.z || 0), 0);
+  setBackground(state.background || DEFAULT_BG);
+  state.notes.forEach(renderNote);
+}
+
+// ---- ファイルへの保存・読み込み ----
+const saveButton = document.getElementById('board-save');
+const loadButton = document.getElementById('board-load');
+
+async function saveToFile() {
+  const data = { format: FILE_FORMAT, version: FILE_VERSION, background: state.background, notes: state.notes };
+  try {
+    await window.fusen.saveBoard(JSON.stringify(data, null, 2));
+  } catch (e) {
+    alert('保存できませんでした。\n' + e.message);
+  }
+}
+
+async function loadFromFile() {
+  let result;
+  try {
+    result = await window.fusen.loadBoard();
+  } catch (e) {
+    alert('ファイルを読み込めませんでした。\n' + e.message);
+    return;
+  }
+  if (result.canceled) return;
+  let data;
+  try {
+    data = JSON.parse(result.json);
+  } catch (e) { /* 下で不正なファイルとして扱う */ }
+  if (!data || data.format !== FILE_FORMAT || !Array.isArray(data.notes)) {
+    alert('付箋黒板のファイルではありません。');
+    return;
+  }
+  if (state.notes.length && !confirm('現在のボードを読み込んだ内容で置き換えますか？')) return;
+  state = { background: data.background || DEFAULT_BG, notes: data.notes };
+  renderAll();
+  save();
+}
+
+saveButton.addEventListener('click', saveToFile);
+loadButton.addEventListener('click', loadFromFile);
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  const key = e.key.toLowerCase();
+  if (key === 's') {
+    e.preventDefault();
+    saveToFile();
+  } else if (key === 'o') {
+    e.preventDefault();
+    loadFromFile();
+  }
+});
+
 // ---- 初期表示 ----
-setBackground(state.background || DEFAULT_BG);
-state.notes.forEach(renderNote);
+renderAll();
