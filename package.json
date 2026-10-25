@@ -32,7 +32,7 @@
       "src/**/*"
     ],
     "win": {
-      "target": "nsis",
+      "target": "zip",
       "artifactName": "${productName}-${version}-win-${arch}.${ext}"
     },
     "mac": {
