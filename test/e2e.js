@@ -117,6 +117,59 @@ const path = require('path');
   assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(198, 40, 40)');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
+
+  // ---- ファイルへの保存・読み込み ----
+  const savePath = path.join(userData, 'board.fusen');
+  const stubDialogs = (filePath) => app.evaluate(({ dialog }, p) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: p });
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+  }, filePath);
+  page.on('dialog', (d) => d.accept());
+  await stubDialogs(savePath);
+
+  // ボタンで保存
+  await page.click('#board-save');
+  for (let i = 0; i < 20 && !fs.existsSync(savePath); i++) await page.waitForTimeout(100);
+  const saved = JSON.parse(fs.readFileSync(savePath, 'utf8'));
+  assert.strictEqual(saved.format, 'fusenkokuban');
+  assert.strictEqual(saved.background, '#123456');
+  assert.strictEqual(saved.notes.length, 1);
+  assert.strictEqual(saved.notes[0].text, 'こんにちは hello');
+
+  // 内容を変えてから読み込むと保存時の状態に戻る
+  await page.mouse.dblclick(900, 500);
+  await page.keyboard.type('あとで消える');
+  await page.$eval('#bg-color', (el) => {
+    el.value = '#000000';
+    el.dispatchEvent(new Event('input'));
+  });
+  assert.strictEqual(await page.locator('.note').count(), 2);
+  await page.click('#board-load');
+  await page.waitForFunction(() => document.querySelectorAll('.note').length === 1);
+  assert.strictEqual(await page.inputValue('.note-text'), 'こんにちは hello');
+  assert.strictEqual(await page.$eval('#board', (el) => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 86)');
+  assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
+
+  // ショートカットでも保存できる
+  const savePath2 = path.join(userData, 'board2.fusen');
+  await stubDialogs(savePath2);
+  await page.mouse.click(1000, 700);
+  await page.keyboard.press('Control+s');
+  for (let i = 0; i < 20 && !fs.existsSync(savePath2); i++) await page.waitForTimeout(100);
+  assert.strictEqual(JSON.parse(fs.readFileSync(savePath2, 'utf8')).notes.length, 1);
+
+  // 付箋黒板のファイルでなければ読み込まない
+  const badPath = path.join(userData, 'bad.json');
+  fs.writeFileSync(badPath, '{"hello": 1}');
+  await stubDialogs(badPath);
+  let alerted = null;
+  page.once('dialog', (d) => { alerted = d.message(); });
+  await page.click('#board-load');
+  for (let i = 0; i < 20 && !alerted; i++) await page.waitForTimeout(100);
+  assert.ok(alerted && alerted.includes('付箋黒板のファイルではありません'));
+  assert.strictEqual(await page.locator('.note').count(), 1);
+
+  await page.screenshot({ path: path.join(userData, 'toolbar.png') });
   await app.close();
 
   console.log('OK: all e2e checks passed (screenshot: ' + path.join(userData, 'shot.png') + ')');
