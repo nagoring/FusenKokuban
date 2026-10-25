@@ -34,7 +34,13 @@
       "target": "nsis"
     },
     "mac": {
-      "target": "dmg"
+      "target": {
+        "target": "dmg",
+        "arch": [
+          "universal"
+        ]
+      },
+      "category": "public.app-category.productivity"
     },
     "linux": {
       "target": "AppImage"
