@@ -1,0 +1,88 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Meiryo", sans-serif;
+}
+
+#toolbar {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 13px;
+}
+#toolbar input[type="color"] { width: 32px; height: 22px; border: none; padding: 0; background: none; vertical-align: middle; }
+#toolbar .hint { opacity: 0.75; }
+
+#board {
+  position: absolute;
+  inset: 0;
+  background: #2f5d3a;
+}
+
+.note {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  min-height: 80px;
+  background: #fff59d;
+  border-radius: 3px;
+  box-shadow: 2px 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.note-header {
+  flex: 0 0 22px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 4px;
+  background: rgba(0, 0, 0, 0.08);
+  cursor: move;
+  user-select: none;
+}
+.note-close {
+  border: none;
+  background: none;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  color: #555;
+}
+.note-close:hover { color: #c00; }
+
+.note-text {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  color: #222;
+}
+
+.resizer { position: absolute; z-index: 1; }
+.resizer.n, .resizer.s { left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
+.resizer.e, .resizer.w { top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
+.resizer.n { top: -3px; }
+.resizer.s { bottom: -3px; }
+.resizer.e { right: -3px; }
+.resizer.w { left: -3px; }
+.resizer.ne, .resizer.nw, .resizer.se, .resizer.sw { width: 12px; height: 12px; }
+.resizer.ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.resizer.sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.resizer.nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.resizer.se { bottom: -4px; right: -4px; cursor: nwse-resize; }

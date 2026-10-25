@@ -1,0 +1,43 @@
+{
+  "name": "fusenkokuban",
+  "version": "0.1.0",
+  "description": "黒板に付箋を貼るデスクトップアプリ",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/e2e.js",
+    "dist": "electron-builder"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nagoring/FusenKokuban.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nagoring/FusenKokuban/issues"
+  },
+  "homepage": "https://github.com/nagoring/FusenKokuban#readme",
+  "devDependencies": {
+    "electron": "^38.8.6",
+    "electron-builder": "^26.18.0"
+  },
+  "productName": "FusenKokuban",
+  "build": {
+    "appId": "com.nagoring.fusenkokuban",
+    "productName": "FusenKokuban",
+    "files": [
+      "main.js",
+      "src/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
