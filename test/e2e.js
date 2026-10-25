@@ -27,7 +27,7 @@ const path = require('path');
 
   // 文字入力
   await page.keyboard.type('こんにちは hello');
-  assert.strictEqual(await page.inputValue('.note-text'), 'こんにちは hello');
+  assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), 'こんにちは hello');
 
   // タイトルバーは無い
   assert.strictEqual(await page.locator('.note-header').count(), 0);
@@ -91,6 +91,59 @@ const path = require('path');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
   assert.strictEqual(await note.count(), 1, 'スタイル変更で付箋が増えない');
 
+  // 一部だけ選択して文字色・大きさを変える（#11）
+  await page.$eval('.note-text', (el) => {
+    const t = el.firstChild;
+    const r = document.createRange();
+    r.setStart(t, t.data.indexOf('hello'));
+    r.setEnd(t, t.data.length);
+    el.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+  });
+  await page.waitForTimeout(50); // selectionchange は非同期
+  await page.$eval('.note-text-color', (el) => {
+    el.value = '#1565c0';
+    el.dispatchEvent(new Event('input'));
+  });
+  await page.$eval('.note-text-color', (el) => {
+    el.value = '#2e7d32';
+    el.dispatchEvent(new Event('input'));
+  });
+  await page.selectOption('.note-font-size', '48');
+  const partStyle = () => page.$eval('.note-text', (el) => {
+    const span = el.querySelector('span');
+    return {
+      spans: el.querySelectorAll('span').length,
+      text: span.textContent,
+      color: getComputedStyle(span).color,
+      size: getComputedStyle(span).fontSize,
+      baseColor: getComputedStyle(el).color,
+      baseSize: getComputedStyle(el).fontSize,
+      all: el.innerText,
+    };
+  });
+  assert.deepStrictEqual(await partStyle(), {
+    spans: 1, text: 'hello', color: 'rgb(46, 125, 50)', size: '48px',
+    baseColor: 'rgb(198, 40, 40)', baseSize: '24px', all: 'こんにちは hello',
+  }, '選択した部分だけ変わり、付箋全体の設定はそのまま');
+  assert.strictEqual(await page.$eval('.note-font-size', (el) => el.value), '24', 'バーの表示は付箋全体の大きさに戻る');
+
+  // 選択していなければ従来どおり付箋全体に適用される
+  await page.$eval('.note-text', (el) => {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    const r = document.createRange();
+    r.setStart(el.firstChild, 0);
+    sel.addRange(r);
+  });
+  await page.waitForTimeout(50);
+  await page.selectOption('.note-font-size', '18');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '18px');
+  assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).fontSize), '48px');
+  await page.selectOption('.note-font-size', '24');
+
   // 選択中のスクショ
   await page.screenshot({ path: path.join(userData, 'selected.png') });
 
@@ -112,11 +165,13 @@ const path = require('path');
   app = await launch();
   page = await app.firstWindow();
   await page.waitForSelector('.note');
-  assert.strictEqual(await page.inputValue('.note-text'), 'こんにちは hello');
+  assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), 'こんにちは hello');
   assert.strictEqual(await page.$eval('#board', (el) => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 86)');
   assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(198, 40, 40)');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
+  assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).color), 'rgb(46, 125, 50)');
+  assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).fontSize), '48px');
 
   // ---- ファイルへの保存・読み込み ----
   const savePath = path.join(userData, 'board.fusen');
@@ -146,7 +201,7 @@ const path = require('path');
   assert.strictEqual(await page.locator('.note').count(), 2);
   await page.click('#board-load');
   await page.waitForFunction(() => document.querySelectorAll('.note').length === 1);
-  assert.strictEqual(await page.inputValue('.note-text'), 'こんにちは hello');
+  assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), 'こんにちは hello');
   assert.strictEqual(await page.$eval('#board', (el) => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 86)');
   assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
 
@@ -255,6 +310,27 @@ const path = require('path');
   assert.strictEqual(await page.locator('.note.image').count(), 2);
   assert.strictEqual(await page.locator('.note').count(), 3);
   assert.strictEqual(await page.$eval('.note.image img', (el) => el.naturalWidth), 200);
+
+  // 旧形式（text のみ）や不正な HTML を含むファイルも安全に読み込める
+  const legacyPath = path.join(userData, 'legacy.fusen');
+  fs.writeFileSync(legacyPath, JSON.stringify({
+    format: 'fusenkokuban', version: 1, background: '#2f5d3a',
+    notes: [
+      { id: 'a', x: 50, y: 100, w: 200, h: 120, z: 1, text: '1行目\n<b>2行目</b>' },
+      { id: 'b', x: 300, y: 100, w: 200, h: 120, z: 2, text: 'x',
+        html: '<img src="x" onerror="window.hacked=1"><span style="color: red; position: fixed" onclick="x()">赤</span><script>window.hacked=1</script>' },
+    ],
+  }));
+  await app.evaluate(({ dialog }, p) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+  }, legacyPath);
+  page.on('dialog', (d) => d.accept());
+  await page.click('#board-load');
+  await page.waitForFunction(() => document.querySelectorAll('.note').length === 2);
+  const texts = await page.$$eval('.note-text', (els) => els.map((el) => ({ text: el.innerText, html: el.innerHTML })));
+  assert.strictEqual(texts[0].text, '1行目\n<b>2行目</b>', '旧形式の文字はそのまま表示');
+  assert.strictEqual(texts[1].html, '<span style="color: red;">赤</span>', '不要なタグ・属性・書式は除去');
+  assert.strictEqual(await page.evaluate(() => window.hacked), undefined);
   await app.close();
 
   console.log('OK: all e2e checks passed (screenshot: ' + path.join(userData, 'shot.png') + ')');
