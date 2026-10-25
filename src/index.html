@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>付箋黒板</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="toolbar">
+    <label>背景色 <input type="color" id="bg-color"></label>
+    <button id="bg-reset" type="button">緑に戻す</button>
+    <span class="hint">ダブルクリックで付箋を作成</span>
+  </div>
+  <div id="board"></div>
+  <script src="renderer.js"></script>
+</body>
+</html>
