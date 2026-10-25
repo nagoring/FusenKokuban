@@ -92,10 +92,108 @@ function applyStyle(note, el) {
   text.style.fontSize = (note.fontSize || DEFAULT_FONT_SIZE) + 'px';
 }
 
+// ---- 本文（リッチテキスト） ----
+// 本文は HTML で持つ。読み込んだファイル由来の HTML も通すため、使うタグと書式だけ残す
+const ALLOWED_TAGS = new Set(['DIV', 'P', 'BR', 'SPAN', 'B', 'I', 'U', 'FONT']);
+const DROPPED_TAGS = new Set(['SCRIPT', 'STYLE', 'TEMPLATE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH']);
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML.replace(/\n/g, '<br>');
+}
+
+function sanitizeHtml(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const clean = (parent) => {
+    for (const node of Array.from(parent.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) continue;
+      if (node.nodeType !== Node.ELEMENT_NODE || !ALLOWED_TAGS.has(node.tagName)) {
+        // 不明な要素は中の文字だけ残す
+        if (node.nodeType === Node.ELEMENT_NODE && !DROPPED_TAGS.has(node.tagName.toUpperCase())) {
+          clean(node);
+          node.replaceWith(...node.childNodes);
+        } else {
+          node.remove();
+        }
+        continue;
+      }
+      const el = node.tagName === 'FONT' ? fontToSpan(node) : node;
+      const color = el.style.color;
+      const fontSize = el.style.fontSize;
+      for (const attr of Array.from(el.attributes)) el.removeAttribute(attr.name);
+      if (color) el.style.color = color;
+      if (fontSize) el.style.fontSize = fontSize;
+      clean(el);
+    }
+  };
+  clean(tpl.content);
+  return tpl.innerHTML;
+}
+
+// 古い形式の <font color> は <span style> に置き換える
+function fontToSpan(font) {
+  const span = document.createElement('span');
+  if (font.getAttribute('color')) span.style.color = font.getAttribute('color');
+  font.replaceWith(span);
+  span.append(...font.childNodes);
+  return span;
+}
+
+function noteHtml(note) {
+  return note.html != null ? sanitizeHtml(note.html) : escapeHtml(note.text || '');
+}
+
+// 付箋ごとに、本文で最後に選択していた範囲を覚えておく（色の選択などでフォーカスが外れても使えるように）
+const savedRanges = new WeakMap();
+
+document.addEventListener('selectionchange', () => {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const node = sel.anchorNode;
+  const editor = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest('.note-text');
+  if (!editor) return;
+  savedRanges.set(editor, sel.isCollapsed ? null : sel.getRangeAt(0).cloneRange());
+});
+
+// 本文の選択範囲があれば、その部分に書式（color / fontSize）を付けて true を返す
+function formatSelection(editor, prop, value) {
+  const range = savedRanges.get(editor);
+  if (!range || range.collapsed || !editor.contains(range.commonAncestorContainer)) return false;
+  // 直前に書式を付けた部分をそのまま選んでいるなら、その要素の書式を変えるだけにする
+  const node = range.startContainer;
+  if (node === range.endContainer && node.tagName === 'SPAN' && node !== editor
+      && range.startOffset === 0 && range.endOffset === node.childNodes.length) {
+    node.style[prop] = value;
+    editor.dispatchEvent(new Event('input'));
+    return true;
+  }
+  const frag = range.extractContents();
+  // 範囲内に元からある同じ書式は外して、新しい指定に揃える
+  frag.querySelectorAll('[style]').forEach((c) => { c.style[prop] = ''; });
+  const span = document.createElement('span');
+  span.style[prop] = value;
+  span.appendChild(frag);
+  range.insertNode(span);
+  // 続けて別の書式も付けられるよう、書式を付けた部分を選択したままにする
+  const r = document.createRange();
+  r.selectNodeContents(span);
+  editor.focus();
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+  savedRanges.set(editor, r.cloneRange());
+  editor.dispatchEvent(new Event('input'));
+  return true;
+}
+
 // 選択中の付箋に表示する、背景色・文字色・文字サイズの変更バー
+// 本文の一部を選択しているときは、文字色・文字サイズはその部分だけに適用する
 function createStyleBar(note, el) {
   const bar = document.createElement('div');
   bar.className = 'note-style';
+  const editor = el.querySelector('.note-text');
 
   const update = (patch) => {
     Object.assign(note, patch);
@@ -128,7 +226,9 @@ function createStyleBar(note, el) {
   const textColorInput = document.createElement('input');
   textColorInput.type = 'color';
   textColorInput.className = 'note-text-color';
-  textColorInput.addEventListener('input', () => update({ textColor: textColorInput.value }));
+  textColorInput.addEventListener('input', () => {
+    if (!formatSelection(editor, 'color', textColorInput.value)) update({ textColor: textColorInput.value });
+  });
   textColorLabel.appendChild(textColorInput);
 
   const sizeSelect = document.createElement('select');
@@ -140,7 +240,11 @@ function createStyleBar(note, el) {
     opt.textContent = size + 'px';
     sizeSelect.appendChild(opt);
   }
-  sizeSelect.addEventListener('change', () => update({ fontSize: Number(sizeSelect.value) }));
+  sizeSelect.addEventListener('change', () => {
+    const size = Number(sizeSelect.value);
+    if (formatSelection(editor, 'fontSize', size + 'px')) sync();
+    else update({ fontSize: size });
+  });
 
   // 現在の設定をコントロールに反映する
   const sync = () => {
@@ -210,7 +314,10 @@ function resizeBy(dir, note, dx, dy, start) {
 
 function select(el) {
   document.querySelectorAll('.note.selected').forEach((n) => {
-    if (n !== el) n.classList.remove('selected');
+    if (n === el) return;
+    n.classList.remove('selected');
+    const editor = n.querySelector('.note-text');
+    if (editor) savedRanges.delete(editor);
   });
   if (el) el.classList.add('selected');
 }
@@ -231,13 +338,22 @@ function renderNote(note) {
     content.alt = '';
     content.draggable = false;
   } else {
-    content = document.createElement('textarea');
+    content = document.createElement('div');
     content.className = 'note-text';
-    content.value = note.text;
+    content.contentEditable = 'true';
     content.spellcheck = false;
+    content.innerHTML = noteHtml(note);
     content.addEventListener('input', () => {
-      note.text = content.value;
+      note.html = content.innerHTML;
+      note.text = content.innerText;
       save();
+    });
+    // 文字の貼り付けは書式を持ち込まず、ただの文字として入れる（画像は別処理）
+    content.addEventListener('paste', (e) => {
+      const hasFile = Array.from(e.clipboardData.items).some((item) => item.kind === 'file');
+      if (hasFile) return;
+      e.preventDefault();
+      document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
     });
   }
 
@@ -280,7 +396,7 @@ function renderNote(note) {
 
   close.addEventListener('pointerdown', (e) => e.stopPropagation());
   close.addEventListener('click', () => {
-    if ((note.text || isImage) && !confirm('この付箋を削除しますか？')) return;
+    if ((isImage || (note.text || '').trim()) && !confirm('この付箋を削除しますか？')) return;
     state.notes = state.notes.filter((n) => n.id !== note.id);
     el.remove();
     save();
@@ -306,6 +422,7 @@ function createNote(x, y) {
     x, y, w: 220, h: 180,
     z: ++topZ,
     text: '',
+    html: '',
     color: DEFAULT_NOTE_COLOR,
     textColor: DEFAULT_TEXT_COLOR,
     fontSize: DEFAULT_FONT_SIZE,
