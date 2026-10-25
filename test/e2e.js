@@ -396,6 +396,56 @@ const path = require('path');
   await page.waitForSelector('.note');
   assert.strictEqual(await page.locator('.note').count(), 3);
   assert.strictEqual(await page.$eval('.note:last-of-type .note-text', (el) => el.innerText), 'abc');
+
+  // ---- 右クリックメニュー（#13） ----
+  const menu = page.locator('#context-menu');
+  const target = page.locator('.note:last-of-type');
+  const openMenu = async () => {
+    const b = await target.boundingBox();
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2, { button: 'right' });
+    await menu.waitFor({ state: 'visible' });
+  };
+  await openMenu();
+  assert.strictEqual(await target.evaluate((el) => el.classList.contains('selected')), true, '右クリックで選択される');
+  await page.screenshot({ path: path.join(userData, 'menu.png') });
+  // Esc で閉じる
+  await page.keyboard.press('Escape');
+  assert.strictEqual(await menu.isVisible(), false);
+
+  // 色を変える（スタイルバーの表示も合わせる）
+  await openMenu();
+  await page.click('#context-menu .swatch[data-color="#c5e1a5"]');
+  assert.strictEqual(await menu.isVisible(), false, '選んだら閉じる');
+  assert.strictEqual(await target.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(197, 225, 165)');
+  assert.strictEqual(await page.$eval('.note:last-of-type .note-style .swatch.active', (el) => el.dataset.color), '#c5e1a5');
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await page.locator('.note:last-of-type').evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)', 'メニューでの変更も戻せる');
+
+  // 端に寄せる
+  const geo = () => page.$eval('.note:last-of-type', (el) => ({
+    x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, vw: innerWidth, vh: innerHeight,
+  }));
+  for (const side of ['left', 'top', 'right', 'bottom']) {
+    await openMenu();
+    await page.click(`#context-menu .edge[data-side="${side}"]`);
+    const g = await geo();
+    if (side === 'left') assert.strictEqual(g.x, 10);
+    if (side === 'top') assert.strictEqual(g.y, 10);
+    if (side === 'right') assert.strictEqual(g.x, g.vw - g.w - 10);
+    if (side === 'bottom') assert.strictEqual(g.y, g.vh - g.h - 10);
+  }
+
+  // 付箋を閉じる
+  const before13 = await page.locator('.note').count();
+  await openMenu();
+  await page.click('#context-menu .menu-close');
+  assert.strictEqual(await page.locator('.note').count(), before13 - 1);
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await page.locator('.note').count(), before13);
+
+  // 背景を右クリックしてもメニューは出ない
+  await page.mouse.click(100, 700, { button: 'right' });
+  assert.strictEqual(await menu.isVisible(), false);
   await app.close();
 
   console.log('OK: all e2e checks passed (screenshot: ' + path.join(userData, 'shot.png') + ')');
