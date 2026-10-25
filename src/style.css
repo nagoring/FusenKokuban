@@ -56,6 +56,19 @@ html, body {
 
 .note.selected { outline: 1px solid #1a73e8; }
 
+/* 画像の付箋 */
+.note.image { background: transparent; box-shadow: none; }
+.note-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(2px 4px 6px rgba(0, 0, 0, 0.4));
+  cursor: move;
+  user-select: none;
+}
+
 /* 枠線部分（ドラッグで移動） */
 .note-edge { position: absolute; z-index: 1; cursor: move; }
 .note-edge.top    { top: 0; left: 0; right: 0; height: 6px; }

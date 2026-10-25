@@ -170,6 +170,91 @@ const path = require('path');
   assert.strictEqual(await page.locator('.note').count(), 1);
 
   await page.screenshot({ path: path.join(userData, 'toolbar.png') });
+
+  // ---- 画像の付箋 ----
+  // 200x100 の赤い PNG をドロップで貼る
+  const pngBase64 = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 200;
+    c.height = 100;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#e53935';
+    ctx.fillRect(0, 0, 200, 100);
+    return c.toDataURL('image/png').split(',')[1];
+  });
+  await page.evaluate((b64) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'red.png', { type: 'image/png' }));
+    const board = document.getElementById('board');
+    board.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true, clientX: 700, clientY: 200 }));
+    board.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true, clientX: 700, clientY: 200 }));
+  }, pngBase64);
+  const img = page.locator('.note.image');
+  await img.waitFor();
+  const ib = await img.boundingBox();
+  assert.deepStrictEqual(
+    { x: Math.round(ib.x), y: Math.round(ib.y), w: Math.round(ib.width), h: Math.round(ib.height) },
+    { x: 600, y: 150, w: 200, h: 100 }, 'ドロップ位置を中心に原寸で貼られる');
+  assert.strictEqual(await page.locator('.note.image .note-text').count(), 0);
+  assert.strictEqual(await page.locator('.note.image .note-style').count(), 0);
+
+  const imgRect = async () => {
+    const b = await img.boundingBox();
+    return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) };
+  };
+  // 四隅は縦横比を保って拡大
+  let before = await imgRect();
+  await drag('.note.image .resizer.se', 100, 10);
+  let after = await imgRect();
+  assert.deepStrictEqual(after, { x: before.x, y: before.y, w: 300, h: 150 }, 'se は縦横比維持');
+  before = after;
+  await drag('.note.image .resizer.nw', 100, 0);
+  after = await imgRect();
+  assert.deepStrictEqual(after, { x: before.x + 100, y: before.y + 50, w: 200, h: 100 }, 'nw は縦横比維持');
+  // 辺は片方向だけ変わる
+  before = after;
+  await drag('.note.image .resizer.e', 40, 0);
+  after = await imgRect();
+  assert.deepStrictEqual(after, { ...before, w: before.w + 40 }, 'e は横だけ');
+  // 画像そのものをドラッグして移動
+  before = after;
+  await drag('.note.image .note-image', -50, 30);
+  after = await imgRect();
+  assert.deepStrictEqual(after, { ...before, x: before.x - 50, y: before.y + 30 }, '画像ドラッグで移動');
+
+  // クリップボードの画像を Ctrl+V で貼る
+  await app.evaluate(({ clipboard, nativeImage }, b64) => {
+    clipboard.writeImage(nativeImage.createFromBuffer(Buffer.from(b64, 'base64')));
+  }, pngBase64);
+  await page.mouse.click(300, 650);
+  await page.keyboard.press('Control+v');
+  await page.waitForFunction(() => document.querySelectorAll('.note.image').length === 2);
+  const pasted = await page.locator('.note.image').nth(1).boundingBox();
+  assert.deepStrictEqual(
+    { x: Math.round(pasted.x), y: Math.round(pasted.y), w: Math.round(pasted.width), h: Math.round(pasted.height) },
+    { x: 200, y: 600, w: 200, h: 100 }, 'マウス位置を中心に貼られる');
+
+  // 画像はファイル保存にも含まれる
+  const imgSavePath = path.join(userData, 'image.fusen');
+  await stubDialogs(imgSavePath);
+  await page.click('#board-save');
+  for (let i = 0; i < 20 && !fs.existsSync(imgSavePath); i++) await page.waitForTimeout(100);
+  const imgSaved = JSON.parse(fs.readFileSync(imgSavePath, 'utf8'));
+  assert.strictEqual(imgSaved.notes.filter((n) => n.type === 'image' && n.image.startsWith('data:image/png')).length, 2);
+
+  await page.screenshot({ path: path.join(userData, 'image.png') });
+  await app.close();
+
+  // 再起動後も画像の付箋が復元される
+  app = await launch();
+  page = await app.firstWindow();
+  await page.waitForSelector('.note.image');
+  assert.strictEqual(await page.locator('.note.image').count(), 2);
+  assert.strictEqual(await page.locator('.note').count(), 3);
+  assert.strictEqual(await page.$eval('.note.image img', (el) => el.naturalWidth), 200);
   await app.close();
 
   console.log('OK: all e2e checks passed (screenshot: ' + path.join(userData, 'shot.png') + ')');
