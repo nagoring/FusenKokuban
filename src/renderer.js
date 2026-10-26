@@ -10,6 +10,22 @@ const DEFAULT_FONT_SIZE = 15;
 const NOTE_COLORS = ['#fff59d', '#ffcc80', '#f8bbd0', '#b3e5fc', '#c5e1a5', '#ffffff'];
 const TEXT_COLORS = ['#222222', '#d32f2f', '#1976d2', '#388e3c', '#f57c00', '#7b1fa2', '#ffffff'];
 const FONT_SIZES = [12, 15, 18, 24, 32, 48];
+const FONT_SIZE_MIN = 6;
+const FONT_SIZE_MAX = 200;
+// Windows / macOS / Linux のどれかに入っているフォントを並べ、無ければ汎用フォントにフォールバックする
+const FONT_FAMILIES = [
+  ['', '標準'],
+  ['"Hiragino Sans", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans CJK JP", sans-serif', 'ゴシック'],
+  ['"Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", "Noto Serif CJK JP", serif', '明朝'],
+  ['"Hiragino Maru Gothic ProN", "BIZ UDGothic", Meiryo, "Noto Sans CJK JP", sans-serif', '丸ゴシック'],
+  ['Consolas, Menlo, "DejaVu Sans Mono", "Noto Sans Mono", monospace', '等幅'],
+  ['Arial, Helvetica, "Liberation Sans", sans-serif', 'Arial'],
+  ['"Times New Roman", Times, "Liberation Serif", serif', 'Times New Roman'],
+  ['Georgia, "DejaVu Serif", serif', 'Georgia'],
+  ['Verdana, "DejaVu Sans", sans-serif', 'Verdana'],
+  ['"Courier New", Courier, "Liberation Mono", monospace', 'Courier New'],
+  ['"Comic Sans MS", "Comic Neue", cursive', 'Comic Sans'],
+];
 const STYLE_BAR_SPACE = 40; // 付箋の上にスタイルバーを出せる最小の余白
 
 const board = document.getElementById('board');
@@ -146,6 +162,7 @@ function applyStyle(note, el) {
   el.style.background = note.color || DEFAULT_NOTE_COLOR;
   text.style.color = note.textColor || DEFAULT_TEXT_COLOR;
   text.style.fontSize = (note.fontSize || DEFAULT_FONT_SIZE) + 'px';
+  text.style.fontFamily = note.fontFamily || '';
 }
 
 // ---- 本文（リッチテキスト） ----
@@ -178,9 +195,11 @@ function sanitizeHtml(html) {
       const el = node.tagName === 'FONT' ? fontToSpan(node) : node;
       const color = el.style.color;
       const fontSize = el.style.fontSize;
+      const fontFamily = el.style.fontFamily;
       for (const attr of Array.from(el.attributes)) el.removeAttribute(attr.name);
       if (color) el.style.color = color;
       if (fontSize) el.style.fontSize = fontSize;
+      if (fontFamily) el.style.fontFamily = fontFamily;
       clean(el);
     }
   };
@@ -213,7 +232,7 @@ document.addEventListener('selectionchange', () => {
   savedRanges.set(editor, sel.isCollapsed ? null : sel.getRangeAt(0).cloneRange());
 });
 
-// 本文の選択範囲があれば、その部分に書式（color / fontSize）を付けて true を返す
+// 本文の選択範囲があれば、その部分に書式（color / fontSize / fontFamily）を付けて true を返す
 function formatSelection(editor, prop, value) {
   const range = savedRanges.get(editor);
   if (!range || range.collapsed || !editor.contains(range.commonAncestorContainer)) return false;
@@ -245,8 +264,8 @@ function formatSelection(editor, prop, value) {
   return true;
 }
 
-// 選択中の付箋に表示する、文字色・文字サイズの変更バー（付箋の色は右クリックメニューで変える）
-// 本文の一部を選択しているときは、文字色・文字サイズはその部分だけに適用する
+// 選択中の付箋に表示する、文字色・文字サイズ・フォントの変更バー（付箋の色は右クリックメニューで変える）
+// 本文の一部を選択しているときは、その部分だけに適用する
 function createStyleBar(note, el) {
   const bar = document.createElement('div');
   bar.className = 'note-style';
@@ -297,10 +316,43 @@ function createStyleBar(note, el) {
     opt.textContent = size + 'px';
     sizeSelect.appendChild(opt);
   }
-  sizeSelect.addEventListener('change', () => {
-    const size = Number(sizeSelect.value);
+  // 本文の一部を選択していればその部分、なければ付箋全体の文字サイズを変える
+  const setFontSize = (size) => {
     if (formatSelection(editor, 'fontSize', size + 'px')) sync();
     else update({ fontSize: size });
+  };
+  sizeSelect.addEventListener('change', () => setFontSize(Number(sizeSelect.value)));
+
+  // 一覧に無い大きさは数値で指定する（Enter / フォーカスを外す / 上下ボタンで反映）
+  const sizeInput = document.createElement('input');
+  sizeInput.type = 'number';
+  sizeInput.className = 'note-font-size-input';
+  sizeInput.title = '文字の大きさ（数値で指定）';
+  sizeInput.min = FONT_SIZE_MIN;
+  sizeInput.max = FONT_SIZE_MAX;
+  sizeInput.step = 1;
+  sizeInput.addEventListener('change', () => {
+    const size = Math.round(Number(sizeInput.value));
+    if (!sizeInput.value || !Number.isFinite(size)) return sync();
+    setFontSize(Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size)));
+  });
+  sizeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sizeInput.blur();
+  });
+
+  const fontSelect = document.createElement('select');
+  fontSelect.className = 'note-font-family';
+  fontSelect.title = 'フォント';
+  for (const [value, label] of FONT_FAMILIES) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = label;
+    if (value) opt.style.fontFamily = value;
+    fontSelect.appendChild(opt);
+  }
+  fontSelect.addEventListener('change', () => {
+    if (formatSelection(editor, 'fontFamily', fontSelect.value)) sync();
+    else update({ fontFamily: fontSelect.value });
   });
 
   // 現在の設定をコントロールに反映する
@@ -316,12 +368,21 @@ function createStyleBar(note, el) {
       sizeSelect.appendChild(opt);
     }
     sizeSelect.value = size;
+    sizeInput.value = size;
+    const family = note.fontFamily || '';
+    if (!FONT_FAMILIES.some(([value]) => value === family)) {
+      const opt = document.createElement('option');
+      opt.value = family;
+      opt.textContent = family;
+      fontSelect.appendChild(opt);
+    }
+    fontSelect.value = family;
   };
   sync();
   // 右クリックメニューなど、バーの外から変更したときに表示を合わせる
   el.syncStyleBar = sync;
 
-  bar.append(...swatches, textColorLabel, sizeSelect);
+  bar.append(...swatches, textColorLabel, sizeSelect, sizeInput, fontSelect);
   // バー上の操作でドラッグや付箋作成が始まらないようにする
   bar.addEventListener('pointerdown', (e) => e.stopPropagation());
   return bar;
