@@ -90,17 +90,34 @@ const path = require('path');
   // 文字色・文字サイズ変更（バーの丸ボタンは文字色）
   assert.strictEqual(await page.locator('.note-style').isVisible(), true);
   assert.strictEqual(await page.locator('.note-style .note-color').count(), 0, '付箋の色ピッカーはバーに無い');
-  await page.click('.note-style .swatch[data-color="#d32f2f"]');
-  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(211, 47, 47)');
-  assert.strictEqual(await note.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)', '付箋の色は変わらない');
-  assert.strictEqual(await page.$eval('.note-style .swatch.active', (el) => el.dataset.color), '#d32f2f');
-  await page.$eval('.note-text-color', (el) => {
-    el.value = '#c62828';
-    el.dispatchEvent(new Event('input'));
+  // 選択していなければ、既にある文字は変えず、カーソル位置からこれから入力する文字の書式が変わる
+  await page.$eval('.note-text', (el) => {
+    el.focus();
+    window.getSelection().collapse(el.firstChild, el.firstChild.length);
   });
-  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(198, 40, 40)');
+  await page.waitForTimeout(50);
+  await page.click('.note-style .swatch[data-color="#d32f2f"]');
+  assert.strictEqual(await page.$eval('.note-style .swatch.active', (el) => el.dataset.color), '#d32f2f', '〇は選んだ色');
   await page.selectOption('.note-font-size', '24');
-  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
+  await page.keyboard.type('!?');
+  const typed = () => page.$eval('.note-text', (el) => {
+    const span = el.querySelector('span');
+    return { text: el.innerText, html: el.innerHTML.includes('\u200B'), base: getComputedStyle(el).color,
+      span: [span.textContent, getComputedStyle(span).color, getComputedStyle(span).fontSize] };
+  });
+  assert.deepStrictEqual(await typed(), {
+    text: 'こんにちは hello!?', html: false, base: 'rgb(34, 34, 34)', span: ['!?', 'rgb(211, 47, 47)', '24px'],
+  }, '入力した文字だけ赤・24px');
+  assert.strictEqual(await note.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)', '付箋の色は変わらない');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  // 何も入力せずにカーソルを動かすと、置いた書式は消える
+  await page.click('.note-style .swatch[data-color="#1976d2"]');
+  await page.keyboard.press('Home');
+  await page.waitForTimeout(50);
+  assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), 'こんにちは hello');
+  assert.strictEqual(await page.$eval('.note-text', (el) => el.innerHTML.includes('\u200B')), false);
+  await page.$eval('.note-text', (el) => { el.innerHTML = 'こんにちは hello'; el.dispatchEvent(new Event('input')); });
   assert.strictEqual(await note.count(), 1, 'スタイル変更で付箋が増えない');
 
   // 一部だけ選択して文字色・大きさを変える（#11）
@@ -138,8 +155,8 @@ const path = require('path');
   });
   assert.deepStrictEqual(await partStyle(), {
     spans: 1, text: 'hello', color: 'rgb(46, 125, 50)', size: '48px',
-    baseColor: 'rgb(198, 40, 40)', baseSize: '24px', all: 'こんにちは hello',
-  }, '選択した部分だけ変わり、付箋全体の設定はそのまま');
+    baseColor: 'rgb(34, 34, 34)', baseSize: '15px', all: 'こんにちは hello',
+  }, '選択した部分だけ変わり、ほかの文字はそのまま');
   assert.strictEqual(await page.$eval('.note-font-size', (el) => el.value), '48', 'バーの表示は選択部分の大きさ');
   assert.strictEqual(await page.$eval('.note-text-color', (el) => el.value), '#2e7d32', 'バーの表示は選択部分の色');
 
@@ -147,39 +164,14 @@ const path = require('path');
   assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el, '::selection').color),
     'rgb(46, 125, 50)', '選択中も文字色が見える');
 
-  // 選択していなければ付箋全体に適用され、一部に付けた同じ書式も揃う（色など他の書式は残る）
-  await page.$eval('.note-text', (el) => {
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    const r = document.createRange();
-    r.setStart(el.firstChild, 0);
-    sel.addRange(r);
-  });
+  // カーソルを置くと、その位置の文字の書式がバーに出る
+  await page.$eval('.note-text', (el) => window.getSelection().collapse(el.firstChild, 0));
   await page.waitForTimeout(50);
-  assert.strictEqual(await page.$eval('.note-font-size', (el) => el.value), '24', 'カーソル位置の大きさ（付箋全体）を表示');
-  await page.selectOption('.note-font-size', '18');
-  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '18px');
-  assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).fontSize), '18px');
-  assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).color), 'rgb(46, 125, 50)');
-  await page.selectOption('.note-font-size', '24');
+  assert.strictEqual(await page.$eval('.note-font-size', (el) => el.value), '15', 'カーソル位置の大きさ');
+  assert.strictEqual(await page.$eval('.note-style .swatch.active', (el) => el.dataset.color), '#222222', 'カーソル位置の色');
 
-  // 文字サイズを数値で指定する（範囲外は丸める）
-  await page.fill('.note-font-size-input', '21');
-  await page.press('.note-font-size-input', 'Enter');
-  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '21px');
-  assert.strictEqual(await page.$eval('.note-font-size', (el) => el.value), '21', 'プルダウンにも反映');
-  await page.fill('.note-font-size-input', '999');
-  await page.press('.note-font-size-input', 'Enter');
-  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '200px');
-  assert.strictEqual(await page.$eval('.note-font-size-input', (el) => el.value), '200');
-  await page.selectOption('.note-font-size', '24');
-  assert.strictEqual(await page.$eval('.note-font-size-input', (el) => el.value), '24');
-
-  // フォント変更: 選択なしは付箋全体、選択ありはその部分だけ
-  const mincho = await page.$eval('.note-font-family', (el) => [...el.options].find((o) => o.textContent === '明朝').value);
+  // 選択部分にフォントと数値サイズを付ける（範囲外は丸める）
   const mono = await page.$eval('.note-font-family', (el) => [...el.options].find((o) => o.textContent === '等幅').value);
-  await page.selectOption('.note-font-family', mincho);
-  assert.match(await page.$eval('.note-text', (el) => getComputedStyle(el).fontFamily), /serif$/);
   await page.$eval('.note-text', (el) => {
     const t = el.firstChild;
     const r = document.createRange();
@@ -192,17 +184,21 @@ const path = require('path');
   });
   await page.waitForTimeout(50);
   await page.selectOption('.note-font-family', mono);
-  await page.fill('.note-font-size-input', '30');
-  await page.press('.note-font-size-input', 'Enter');
-  assert.deepStrictEqual(await page.$eval('.note-text', (el) => {
+  const firstSpan = () => page.$eval('.note-text', (el) => {
     const span = el.querySelector('span');
     return { text: span.textContent, family: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
-      baseSize: getComputedStyle(el).fontSize };
-  }), { text: 'こん', family: mono, size: '30px', baseSize: '24px' }, '選択部分にフォントと数値サイズが付く');
+      baseSize: getComputedStyle(el).fontSize, all: el.innerText };
+  });
+  await page.fill('.note-font-size-input', '999');
+  await page.press('.note-font-size-input', 'Enter');
+  assert.strictEqual((await firstSpan()).size, '200px');
+  assert.strictEqual(await page.$eval('.note-font-size-input', (el) => el.value), '200');
+  await page.fill('.note-font-size-input', '30');
+  await page.press('.note-font-size-input', 'Enter');
+  assert.deepStrictEqual(await firstSpan(), { text: 'こん', family: mono, size: '30px', baseSize: '15px', all: 'こんにちは hello' },
+    '選択部分にフォントと数値サイズが付き、Enter で改行は入らない');
   assert.strictEqual(await page.$eval('.note-font-family', (el) => el.value), mono, 'バーの表示は選択部分のフォント');
-  await page.$eval('.note-text', (el) => window.getSelection().collapse(el.firstChild, 0));
-  await page.waitForTimeout(50);
-  await page.selectOption('.note-font-family', '');
+  assert.strictEqual(await page.$eval('.note-font-size', (el) => el.value), '30', 'プルダウンにも反映');
 
   // 選択中のスクショ
   await page.screenshot({ path: path.join(userData, 'selected.png') });
@@ -228,13 +224,12 @@ const path = require('path');
   assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), 'こんにちは hello');
   assert.strictEqual(await page.$eval('#board', (el) => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 86)');
   assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)');
-  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(198, 40, 40)');
-  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(34, 34, 34)');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '15px');
   assert.strictEqual(await page.$eval('.note-text span:last-child', (el) => getComputedStyle(el).color), 'rgb(46, 125, 50)');
-  // hello の 48px と こん のフォントは、あとで付箋全体を変えたときに揃えられている
-  assert.strictEqual(await page.$eval('.note-text span:last-child', (el) => getComputedStyle(el).fontSize), '24px');
-  assert.deepStrictEqual(await page.$eval('.note-text span', (el) => [el.textContent, el.style.fontSize, el.style.fontFamily]),
-    ['こん', '30px', ''], '数値サイズも復元される');
+  assert.strictEqual(await page.$eval('.note-text span:last-child', (el) => getComputedStyle(el).fontSize), '48px');
+  assert.deepStrictEqual(await page.$eval('.note-text span', (el) => [el.textContent, el.style.fontSize, !!el.style.fontFamily]),
+    ['こん', '30px', true], 'フォント・数値サイズも復元される');
 
   // ---- ファイルへの保存・読み込み ----
   const savePath = path.join(userData, 'board.fusen');
@@ -458,8 +453,13 @@ const path = require('path');
   const p0 = await pos();
   await drag('.note:last-of-type .note-grip', 60, 40);
   assert.deepStrictEqual(await pos(), [p0[0] + 60, p0[1] + 40]);
+  await page.click('.note:last-of-type .note-text');
+  await page.keyboard.press('Control+a');
   await page.click('.note:last-of-type .note-style .swatch[data-color="#1976d2"]');
-  const fgOf = () => page.$eval('.note:last-of-type .note-text', (el) => getComputedStyle(el).color);
+  const fgOf = () => page.$eval('.note:last-of-type .note-text', (el) => {
+    const t = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode();
+    return getComputedStyle(t.parentElement).color;
+  });
   assert.strictEqual(await fgOf(), 'rgb(25, 118, 210)');
   await page.keyboard.press('Control+z');
   assert.strictEqual(await fgOf(), 'rgb(34, 34, 34)');
@@ -550,11 +550,22 @@ const path = require('path');
   await page.keyboard.press('End');
   await page.waitForTimeout(50);
   assert.strictEqual(await activeSwatch(), '#d32f2f', 'カーソル位置の色に〇が付く');
-  // 選択せずに色を選ぶと、部分的な色も含めて全体がその色になる
+  // 選択せずに色を選ぶと、既にある文字は変わらず、ここから入力する文字だけその色になる（オレンジのまま青で続きを書ける）
+  const colorsOf = () => freshText.evaluate((el) => {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const out = [];
+    for (let t = w.nextNode(); t; t = w.nextNode()) if (t.data) out.push(t.data + ':' + getComputedStyle(t.parentElement).color);
+    return out;
+  });
   await fresh.locator('.note-style .swatch[data-color="#1976d2"]').click();
-  assert.strictEqual(await freshText.evaluate((el) => el.querySelectorAll('[style]').length), 0);
-  assert.strictEqual(await freshText.evaluate((el) => getComputedStyle(el).color), 'rgb(25, 118, 210)');
-  assert.strictEqual(await activeSwatch(), '#1976d2');
+  assert.strictEqual(await activeSwatch(), '#1976d2', '〇は選んだ色');
+  await page.keyboard.type('bl');
+  assert.deepStrictEqual(await colorsOf(),
+    ['aaa:rgb(211, 47, 47)', 'XYZ:rgb(34, 34, 34)', 'aaa:rgb(211, 47, 47)', 'bl:rgb(25, 118, 210)'], '既存の文字はそのまま');
+  await page.keyboard.insertText('ue');
+  assert.deepStrictEqual((await colorsOf()).slice(-1), ['blue:rgb(25, 118, 210)'], '続けて入力しても同じ色');
+  assert.strictEqual(await freshText.evaluate((el) => el.innerHTML.includes('\u200B')), false, '目印は残らない');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Backspace');
 
   // 行をまたいで選んでも、行の構造はそのまま
   await page.keyboard.press('End');
@@ -564,7 +575,8 @@ const path = require('path');
   await fresh.locator('.note-style .swatch[data-color="#388e3c"]').click();
   assert.strictEqual(await freshText.evaluate((el) => el.innerText), 'aaaXYZaaa\nbbb');
   assert.strictEqual(await freshText.evaluate((el) => el.querySelectorAll('span div').length), 0, 'span の中に行が入らない');
-  assert.strictEqual(await freshText.evaluate((el) => [...el.querySelectorAll('span')].every((s) => getComputedStyle(s).color === 'rgb(56, 142, 60)')), true);
+  assert.deepStrictEqual(await colorsOf(),
+    ['aaa:rgb(56, 142, 60)', 'XYZ:rgb(56, 142, 60)', 'aaa:rgb(56, 142, 60)', 'bbb:rgb(56, 142, 60)']);
 
   // ---- 黒板のタブ ----
   const tabs = page.locator('#tabs .tab');
