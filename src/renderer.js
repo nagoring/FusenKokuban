@@ -8,6 +8,7 @@ const DEFAULT_NOTE_COLOR = '#fff59d';
 const DEFAULT_TEXT_COLOR = '#222222';
 const DEFAULT_FONT_SIZE = 15;
 const NOTE_COLORS = ['#fff59d', '#ffcc80', '#f8bbd0', '#b3e5fc', '#c5e1a5', '#ffffff'];
+const TEXT_COLORS = ['#222222', '#d32f2f', '#1976d2', '#388e3c', '#f57c00', '#7b1fa2', '#ffffff'];
 const FONT_SIZES = [12, 15, 18, 24, 32, 48];
 const STYLE_BAR_SPACE = 40; // 付箋の上にスタイルバーを出せる最小の余白
 
@@ -244,7 +245,7 @@ function formatSelection(editor, prop, value) {
   return true;
 }
 
-// 選択中の付箋に表示する、背景色・文字色・文字サイズの変更バー
+// 選択中の付箋に表示する、文字色・文字サイズの変更バー（付箋の色は右クリックメニューで変える）
 // 本文の一部を選択しているときは、文字色・文字サイズはその部分だけに適用する
 function createStyleBar(note, el) {
   const bar = document.createElement('div');
@@ -259,33 +260,32 @@ function createStyleBar(note, el) {
     save();
   };
 
-  const swatches = NOTE_COLORS.map((color) => {
+  // 本文の一部を選択していればその部分、なければ付箋全体の文字色を変える
+  const setTextColor = (color) => {
+    if (!formatSelection(editor, 'color', color)) update({ textColor: color });
+  };
+
+  const swatches = TEXT_COLORS.map((color) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'swatch';
-    b.title = '付箋の色';
+    b.title = '文字の色';
     b.dataset.color = color;
     b.style.background = color;
-    b.addEventListener('click', () => update({ color }));
+    // クリックで本文の選択が外れないようにする
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    b.addEventListener('click', () => setTextColor(color));
     return b;
   });
 
-  const colorInput = document.createElement('input');
-  colorInput.type = 'color';
-  colorInput.className = 'note-color';
-  colorInput.title = '付箋の色（自由に選ぶ）';
-  colorInput.addEventListener('input', () => update({ color: colorInput.value }));
-
   const textColorLabel = document.createElement('label');
   textColorLabel.className = 'text-color';
-  textColorLabel.title = '文字の色';
+  textColorLabel.title = '文字の色（自由に選ぶ）';
   textColorLabel.textContent = 'A';
   const textColorInput = document.createElement('input');
   textColorInput.type = 'color';
   textColorInput.className = 'note-text-color';
-  textColorInput.addEventListener('input', () => {
-    if (!formatSelection(editor, 'color', textColorInput.value)) update({ textColor: textColorInput.value });
-  });
+  textColorInput.addEventListener('input', () => setTextColor(textColorInput.value));
   textColorLabel.appendChild(textColorInput);
 
   const sizeSelect = document.createElement('select');
@@ -305,10 +305,9 @@ function createStyleBar(note, el) {
 
   // 現在の設定をコントロールに反映する
   const sync = () => {
-    const color = note.color || DEFAULT_NOTE_COLOR;
-    swatches.forEach((b) => b.classList.toggle('active', b.dataset.color === color));
-    colorInput.value = color;
-    textColorInput.value = note.textColor || DEFAULT_TEXT_COLOR;
+    const textColor = note.textColor || DEFAULT_TEXT_COLOR;
+    swatches.forEach((b) => b.classList.toggle('active', b.dataset.color === textColor));
+    textColorInput.value = textColor;
     const size = note.fontSize || DEFAULT_FONT_SIZE;
     if (!FONT_SIZES.includes(size)) {
       const opt = document.createElement('option');
@@ -319,10 +318,10 @@ function createStyleBar(note, el) {
     sizeSelect.value = size;
   };
   sync();
-  // 右クリックメニューなど、バーの外から色を変えたときに表示を合わせる
+  // 右クリックメニューなど、バーの外から変更したときに表示を合わせる
   el.syncStyleBar = sync;
 
-  bar.append(...swatches, colorInput, textColorLabel, sizeSelect);
+  bar.append(...swatches, textColorLabel, sizeSelect);
   // バー上の操作でドラッグや付箋作成が始まらないようにする
   bar.addEventListener('pointerdown', (e) => e.stopPropagation());
   return bar;
