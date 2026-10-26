@@ -30,7 +30,7 @@ jobs:
         with:
           name: FusenKokuban-${{ matrix.os }}
           path: |
-            dist/*.exe
+            dist/*-win-*.zip
             dist/*.dmg
             dist/*.AppImage
 
@@ -49,7 +49,7 @@ jobs:
           [ -f "docs/releases/$TAG.md" ] && { cat "docs/releases/$TAG.md"; echo; } > notes.md || : > notes.md
           cat >> notes.md <<'NOTES'
           ## ダウンロード
-          - **Windows**: `FusenKokuban-*-win-x64.exe`（インストーラ）
+          - **Windows**: `FusenKokuban-*-win-x64.zip`（展開して `FusenKokuban.exe` を実行。インストール不要・レジストリ不使用）
           - **macOS**: `FusenKokuban-*-mac-universal.dmg`（Intel / Apple Silicon 両対応）
           - **Linux**: `FusenKokuban-*-linux-x86_64.AppImage`
 

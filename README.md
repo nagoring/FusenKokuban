@@ -27,13 +27,15 @@
 
 | OS | ファイル |
 | --- | --- |
-| Windows | `FusenKokuban-<版>-win-x64.exe`（インストーラ） |
+| Windows | `FusenKokuban-<版>-win-x64.zip`（インストール不要） |
 | macOS | `FusenKokuban-<版>-mac-universal.dmg`（Intel / Apple Silicon 両対応） |
 | Linux | `FusenKokuban-<版>-linux-x86_64.AppImage` |
 
+Windows 版はインストーラーではなく zip 配布です。レジストリには書き込まず、アンインストールは展開したフォルダを削除するだけです（付箋データは `%APPDATA%\FusenKokuban\board.json` に保存されます）。
+
 コード署名をしていないため、初回起動時に警告が出ます。
 
-- **Windows**: 「WindowsによってPCが保護されました」→「詳細情報」→「実行」
+- **Windows**: zip を「プロパティ」→「許可する」にチェックしてから好きな場所に展開し、`FusenKokuban.exe` を実行。警告が出たら「WindowsによってPCが保護されました」→「詳細情報」→「実行」
 - **macOS**: アプリを「アプリケーション」へコピー後、ターミナルで `xattr -cr /Applications/FusenKokuban.app` を実行してから起動
 - **Linux**: `chmod +x FusenKokuban-*.AppImage` してから実行
 
@@ -50,7 +52,7 @@ npm start
 npm run dist
 ```
 
-`dist/` に各OS向けのインストーラ（Windows: NSIS / macOS: dmg / Linux: AppImage）が出力されます。各OSのパッケージはそのOS上でビルドしてください（GitHub Actions の `Build` ワークフローで3OS分をまとめて作成できます）。
+`dist/` に各OS向けのパッケージ（Windows: zip / macOS: dmg / Linux: AppImage）が出力されます。各OSのパッケージはそのOS上でビルドしてください（GitHub Actions の `Build` ワークフローで3OS分をまとめて作成できます）。
 
 ### リリース手順
 
