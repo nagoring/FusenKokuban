@@ -637,6 +637,20 @@ document.addEventListener('pointerdown', closeContextMenu);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeContextMenu();
 });
+// 選択中の付箋を Delete で削除（Mac は Backspace でも）。文字入力中は文字の削除として扱う
+const IS_MAC = navigator.userAgent.includes('Mac');
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
+  if (!(e.key === 'Delete' || (IS_MAC && e.key === 'Backspace'))) return;
+  const active = document.activeElement;
+  if (active && (active.isContentEditable || active.matches('input, textarea, select'))) return;
+  const el = board.querySelector('.note.selected');
+  const note = el && state.notes.find((n) => n.id === el.dataset.id);
+  if (!note) return;
+  e.preventDefault();
+  closeContextMenu();
+  deleteNote(note, el);
+});
 window.addEventListener('resize', closeContextMenu);
 window.addEventListener('blur', closeContextMenu);
 

@@ -338,6 +338,21 @@ const path = require('path');
     { x: Math.round(pasted.x), y: Math.round(pasted.y), w: Math.round(pasted.width), h: Math.round(pasted.height) },
     { x: 200, y: 600, w: 200, h: 100 }, 'マウス位置を中心に貼られる');
 
+  // 選択中の画像付箋は Delete で消え、Ctrl+Z で戻る
+  const notesNow = () => page.locator('.note').count();
+  const n0 = await notesNow();
+  await page.mouse.click(300, 650);
+  await page.keyboard.press('Delete');
+  assert.strictEqual(await notesNow(), n0 - 1, 'Delete で選択中の付箋が消える');
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await notesNow(), n0, 'Delete で消した付箋を戻せる');
+  // 文字入力中の Delete は文字の削除で、付箋は消えない
+  await page.click('.note:not(.image) .note-text');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Delete');
+  assert.strictEqual(await notesNow(), n0, '文字入力中は付箋を消さない');
+  await page.keyboard.press('Control+z');
+
   // 画像はファイル保存にも含まれる
   const imgSavePath = path.join(userData, 'image.fusen');
   await stubDialogs(imgSavePath);
