@@ -29,6 +29,15 @@ const path = require('path');
   await page.keyboard.type('こんにちは hello');
   assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), 'こんにちは hello');
 
+  // 文字入力中は拡大縮小ハンドルを出さない。Esc で入力を終えると出る
+  const resizerVisible = () => page.locator('.resizer.se').isVisible();
+  assert.strictEqual(await resizerVisible(), false, '入力中はハンドル非表示');
+  await page.keyboard.press('Escape');
+  assert.strictEqual(await resizerVisible(), true, 'Esc でハンドル表示');
+  assert.strictEqual(await note.evaluate((el) => el.classList.contains('selected')), true, 'Esc 後も選択中');
+  await page.click('.note-text');
+  assert.strictEqual(await resizerVisible(), false, '本文クリックで入力に戻るとハンドル非表示');
+
   // タイトルバーは無い
   assert.strictEqual(await page.locator('.note-header').count(), 0);
 
@@ -132,6 +141,10 @@ const path = require('path');
     baseColor: 'rgb(198, 40, 40)', baseSize: '24px', all: 'こんにちは hello',
   }, '選択した部分だけ変わり、付箋全体の設定はそのまま');
   assert.strictEqual(await page.$eval('.note-font-size', (el) => el.value), '24', 'バーの表示は付箋全体の大きさに戻る');
+
+  // 選択中の文字も、付けた文字色のまま表示される（選択色で上書きしない）
+  assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el, '::selection').color),
+    'rgb(46, 125, 50)', '選択中も文字色が見える');
 
   // 選択していなければ従来どおり付箋全体に適用される
   await page.$eval('.note-text', (el) => {

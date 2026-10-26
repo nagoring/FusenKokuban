@@ -473,6 +473,10 @@ function renderNote(note) {
       note.text = content.innerText;
       save();
     });
+    // Esc で文字入力を終えて、付箋の選択表示（拡大縮小ハンドル）に戻す
+    content.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !e.isComposing) content.blur();
+    });
     // 文字の貼り付けは書式を持ち込まず、ただの文字として入れる（画像は別処理）
     content.addEventListener('paste', (e) => {
       const hasFile = Array.from(e.clipboardData.items).some((item) => item.kind === 'file');
@@ -510,10 +514,14 @@ function renderNote(note) {
     el.appendChild(r);
   }
 
-  const startMove = (e) => startDrag(e, note, el, (dx, dy, start) => {
-    note.x = start.x + dx;
-    note.y = start.y + dy;
-  });
+  const startMove = (e) => {
+    // 枠をつかんだら文字入力を終えて、拡大縮小ハンドルを出す
+    if (el.contains(document.activeElement)) document.activeElement.blur();
+    startDrag(e, note, el, (dx, dy, start) => {
+      note.x = start.x + dx;
+      note.y = start.y + dy;
+    });
+  };
   grip.addEventListener('pointerdown', startMove);
   edges.forEach((edge) => edge.addEventListener('pointerdown', startMove));
   // 画像はどこをつかんでも移動できる

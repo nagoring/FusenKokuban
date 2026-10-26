@@ -84,6 +84,9 @@ html, body {
 .note.selected .note-close,
 .note.selected .resizer { display: block; }
 .note.selected .note-style { display: flex; }
+/* 文字入力中は選択表示（枠線・拡大縮小ハンドル）を出さない */
+.note.selected:has(.note-text:focus) { outline: none; }
+.note.selected:has(.note-text:focus) .resizer { display: none; }
 
 /* 文字色・文字サイズの変更バー（選択中のみ表示） */
 .note-style {
@@ -209,3 +212,7 @@ html, body {
   cursor: pointer;
 }
 #context-menu .edge:hover { background: #e8f0fe; }
+
+/* 文字の選択中も文字色が見えるよう、選択部分は文字色を変えず薄い背景だけにする */
+.note-text ::selection,
+.note-text::selection { color: currentColor; background: rgba(26, 115, 232, 0.25); }
