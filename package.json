@@ -1,6 +1,6 @@
 {
   "name": "fusenkokuban",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "黒板に付箋を貼るデスクトップアプリ",
   "main": "main.js",
   "scripts": {
