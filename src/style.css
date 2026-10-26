@@ -278,3 +278,14 @@ html, body {
 /* 文字の選択中も文字色が見えるよう、選択部分は文字色を変えず薄い背景だけにする */
 .note-text ::selection,
 .note-text::selection { color: currentColor; background: rgba(26, 115, 232, 0.25); }
+
+/* 画像として書き出す間は、ツールバー・選択表示・カーソルなどの UI を隠す */
+body.exporting #topbar,
+body.exporting #context-menu,
+body.exporting .note-grip,
+body.exporting .note-close,
+body.exporting .note-style,
+body.exporting .resizer { display: none !important; }
+body.exporting .note.selected { outline: none; }
+body.exporting * { caret-color: transparent !important; }
+body.exporting ::selection { background: transparent !important; }

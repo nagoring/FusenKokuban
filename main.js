@@ -4,6 +4,7 @@ const path = require('path');
 
 const FILE_FILTERS = [{ name: '付箋黒板ファイル', extensions: ['fusen', 'json'] }];
 let lastFilePath = null;
+let lastImageDir = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -46,6 +47,27 @@ ipcMain.handle('board:load', async (e) => {
   const json = await fs.promises.readFile(filePaths[0], 'utf8');
   lastFilePath = filePaths[0];
   return { canceled: false, filePath: filePaths[0], json };
+});
+
+// ---- 画像として書き出し ----
+// 画面に表示中の黒板をそのまま PNG にする（UI を隠す処理は renderer 側で行う）
+ipcMain.handle('board:capture', async (e) => {
+  const image = await e.sender.capturePage();
+  return image.toPNG();
+});
+
+ipcMain.handle('board:export-image', async (e, png, name) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const fileName = (String(name || '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim() || '付箋黒板') + '.png';
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: '画像として書き出し',
+    defaultPath: path.join(lastImageDir || app.getPath('pictures'), fileName),
+    filters: [{ name: 'PNG 画像', extensions: ['png'] }],
+  });
+  if (canceled || !filePath) return { canceled: true };
+  await fs.promises.writeFile(filePath, Buffer.from(png));
+  lastImageDir = path.dirname(filePath);
+  return { canceled: false, filePath };
 });
 
 // ---- 自動保存 ----

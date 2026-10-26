@@ -271,6 +271,46 @@ const path = require('path');
   for (let i = 0; i < 20 && !fs.existsSync(savePath2); i++) await page.waitForTimeout(100);
   assert.strictEqual(JSON.parse(fs.readFileSync(savePath2, 'utf8')).notes.length, 1);
 
+  // ---- 画像として書き出し ----
+  // 付箋を選択してハンドルが出ている状態でも、書き出した画像には UI を写さない
+  const pngPath = path.join(userData, 'board.png');
+  await stubDialogs(pngPath);
+  await page.mouse.click(1000, 700);
+  await page.click('.note-edge.top');
+  assert.strictEqual(await resizerVisible(), true);
+  const nb = await page.locator('.note').boundingBox();
+  await page.click('#board-export');
+  for (let i = 0; i < 30 && !fs.existsSync(pngPath); i++) await page.waitForTimeout(100);
+  assert.deepStrictEqual([...fs.readFileSync(pngPath).subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], 'PNG で保存される');
+  const pixels = await app.evaluate(({ nativeImage }, { p, points }) => {
+    const img = nativeImage.createFromPath(p);
+    const { width } = img.getSize();
+    const bmp = img.toBitmap(); // BGRA
+    const vw = points.vw;
+    const scale = width / vw;
+    return points.list.map(([x, y]) => {
+      const i = (Math.round(y * scale) * width + Math.round(x * scale)) * 4;
+      return [bmp[i + 2], bmp[i + 1], bmp[i]];
+    });
+  }, { p: pngPath, points: { vw: await page.evaluate(() => window.innerWidth), list: [
+    [await page.evaluate(() => window.innerWidth) - 30, 20], // ツールバーの位置は背景色
+    [nb.x - 3, nb.y - 3], // 左上のハンドルの位置も背景色
+    [nb.x + nb.width / 2, nb.y + nb.height - 12], // 付箋の中は付箋の色
+  ] } });
+  // 付箋の影がかかる分の小さな誤差は許す
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 4);
+  assert.ok([[18, 52, 86], [18, 52, 86], [255, 245, 157]].every((c, i) => near(pixels[i], c)),
+    'UI を除いた黒板が写る: ' + JSON.stringify(pixels));
+  assert.strictEqual(await page.evaluate(() => document.body.classList.contains('exporting')), false, '書き出し後は UI が戻る');
+  assert.strictEqual(await resizerVisible(), true, '選択状態は保たれる');
+
+  // ショートカットでも書き出せる
+  const pngPath2 = path.join(userData, 'board2.png');
+  await stubDialogs(pngPath2);
+  await page.keyboard.press('Control+e');
+  for (let i = 0; i < 30 && !fs.existsSync(pngPath2); i++) await page.waitForTimeout(100);
+  assert.ok(fs.existsSync(pngPath2), 'Ctrl+E で書き出せる');
+
   // 付箋黒板のファイルでなければ読み込まない
   const badPath = path.join(userData, 'bad.json');
   fs.writeFileSync(badPath, '{"hello": 1}');
