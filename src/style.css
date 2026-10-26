@@ -85,6 +85,7 @@ html, body {
 }
 #toolbar input[type="color"] { width: 32px; height: 22px; border: none; padding: 0; background: none; vertical-align: middle; }
 #toolbar .hint { opacity: 0.75; }
+#arrow-tool.active { background: #ffe082; border-color: #ffb300; }
 
 #board {
   position: absolute;
@@ -232,6 +233,21 @@ html, body {
 .resizer.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
 .resizer.w  { top: calc(50% - 5px); left: -5px; cursor: ew-resize; }
 
+/* 矢印：線・矢じり・両端の丸だけがマウスに反応し、そのほかは下の黒板や付箋を操作できる */
+.arrow { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.arrow-svg { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.arrow-line { stroke-linecap: round; }
+.arrow-hit { stroke: transparent; stroke-linecap: round; pointer-events: stroke; cursor: move; }
+.arrow-line,
+.arrow-head { pointer-events: visiblePainted; cursor: move; filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.35)); }
+.arrow-handle { display: none; fill: #1a73e8; stroke: #fff; stroke-width: 2; pointer-events: all; cursor: crosshair; }
+.arrow.selected .arrow-handle { display: inline; }
+.arrow.selected .arrow-line,
+.arrow.selected .arrow-head { filter: drop-shadow(0 0 3px rgba(26, 115, 232, 0.9)); }
+/* 矢印モード中は付箋の上でも矢印を引けることを示す */
+#board.arrow-mode,
+#board.arrow-mode * { cursor: crosshair !important; }
+
 /* 右クリックメニュー */
 #context-menu {
   position: fixed;
@@ -274,6 +290,7 @@ html, body {
   cursor: pointer;
 }
 #context-menu .edge:hover { background: #e8f0fe; }
+#context-menu .edge.active { border-color: #1a73e8; background: #e8f0fe; }
 
 /* 文字の選択中も文字色が見えるよう、選択部分は文字色を変えず薄い背景だけにする */
 .note-text ::selection,
@@ -285,7 +302,10 @@ body.exporting #context-menu,
 body.exporting .note-grip,
 body.exporting .note-close,
 body.exporting .note-style,
-body.exporting .resizer { display: none !important; }
+body.exporting .resizer,
+body.exporting .arrow-handle { display: none !important; }
+body.exporting .arrow.selected .arrow-line,
+body.exporting .arrow.selected .arrow-head { filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.35)); }
 body.exporting .note.selected { outline: none; }
 body.exporting * { caret-color: transparent !important; }
 body.exporting ::selection { background: transparent !important; }
