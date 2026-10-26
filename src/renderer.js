@@ -220,41 +220,68 @@ function noteHtml(note) {
   return note.html != null ? sanitizeHtml(note.html) : escapeHtml(note.text || '');
 }
 
-// 付箋ごとに、本文で最後に選択していた範囲を覚えておく（色の選択などでフォーカスが外れても使えるように）
+// 付箋ごとに、本文で最後に選択していた範囲（カーソル位置を含む）を覚えておく（色の選択などでフォーカスが外れても使えるように）
 const savedRanges = new WeakMap();
+
+const editorOf = (node) => node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest('.note-text');
 
 document.addEventListener('selectionchange', () => {
   const sel = window.getSelection();
   if (!sel.rangeCount) return;
-  const node = sel.anchorNode;
-  const editor = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest('.note-text');
+  // 付箋の外からドラッグして選んだときも、本文側の端から付箋を探す
+  const editor = editorOf(sel.anchorNode) || editorOf(sel.focusNode);
   if (!editor) return;
-  savedRanges.set(editor, sel.isCollapsed ? null : sel.getRangeAt(0).cloneRange());
+  const range = sel.getRangeAt(0).cloneRange();
+  if (!editor.contains(range.startContainer)) range.setStart(editor, 0);
+  if (!editor.contains(range.endContainer)) range.setEnd(editor, editor.childNodes.length);
+  savedRanges.set(editor, range);
+  editor.closest('.note')?.syncStyleBar?.();
 });
+
+// 範囲にかかる文字（テキストノード）を、範囲の境目で分けて返す
+function textNodesInRange(editor, range) {
+  const nodes = [];
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    if (t.data && range.intersectsNode(t)) nodes.push(t);
+  }
+  const { startContainer, startOffset, endContainer, endOffset } = range;
+  return nodes.map((t) => {
+    if (t === endContainer && endOffset < t.length) t.splitText(endOffset);
+    if (t === startContainer && startOffset > 0) {
+      if (startOffset >= t.length) return null;
+      return t.splitText(startOffset);
+    }
+    if (t === endContainer && endOffset === 0) return null;
+    return t;
+  }).filter(Boolean);
+}
 
 // 本文の選択範囲があれば、その部分に書式（color / fontSize / fontFamily）を付けて true を返す
 function formatSelection(editor, prop, value) {
   const range = savedRanges.get(editor);
   if (!range || range.collapsed || !editor.contains(range.commonAncestorContainer)) return false;
+  const texts = textNodesInRange(editor, range);
+  if (!texts.length) return false;
   recordHistory('format:' + prop);
-  // 直前に書式を付けた部分をそのまま選んでいるなら、その要素の書式を変えるだけにする
-  const node = range.startContainer;
-  if (node === range.endContainer && node.tagName === 'SPAN' && node !== editor
-      && range.startOffset === 0 && range.endOffset === node.childNodes.length) {
-    node.style[prop] = value;
-    editor.dispatchEvent(new Event('input'));
-    return true;
+  // 文字ごとに一番内側で書式を指定するので、外側に別の書式があっても必ずこちらが効く。
+  // 行（div）をまたいでも行の構造は変えない
+  for (const t of texts) {
+    const parent = t.parentNode;
+    if (parent !== editor && parent.tagName === 'SPAN' && parent.childNodes.length === 1) {
+      parent.style[prop] = value;
+    } else {
+      const span = document.createElement('span');
+      span.style[prop] = value;
+      parent.insertBefore(span, t);
+      span.appendChild(t);
+    }
   }
-  const frag = range.extractContents();
-  // 範囲内に元からある同じ書式は外して、新しい指定に揃える
-  frag.querySelectorAll('[style]').forEach((c) => { c.style[prop] = ''; });
-  const span = document.createElement('span');
-  span.style[prop] = value;
-  span.appendChild(frag);
-  range.insertNode(span);
   // 続けて別の書式も付けられるよう、書式を付けた部分を選択したままにする
   const r = document.createRange();
-  r.selectNodeContents(span);
+  r.setStart(texts[0], 0);
+  const last = texts[texts.length - 1];
+  r.setEnd(last, last.length);
   editor.focus();
   const sel = window.getSelection();
   sel.removeAllRanges();
@@ -262,6 +289,64 @@ function formatSelection(editor, prop, value) {
   savedRanges.set(editor, r.cloneRange());
   editor.dispatchEvent(new Event('input'));
   return true;
+}
+
+// 付箋全体の書式を変えるときは、本文の一部に付けた同じ書式も外して全体を揃える
+function clearInlineFormat(editor, prop) {
+  let changed = false;
+  editor.querySelectorAll('[style]').forEach((el) => {
+    if (!el.style[prop]) return;
+    el.style[prop] = '';
+    if (!el.getAttribute('style')) {
+      el.removeAttribute('style');
+      // 書式が無くなった span は外す
+      if (el.tagName === 'SPAN') el.replaceWith(...el.childNodes);
+    }
+    changed = true;
+  });
+  if (changed) editor.dispatchEvent(new Event('input'));
+}
+
+// カーソル位置（選択範囲の先頭）の文字に効いている書式。部分指定が無ければ null
+function formatAtCaret(editor, prop) {
+  const range = savedRanges.get(editor);
+  if (!range) return null;
+  let node = range.collapsed ? range.startContainer : (textNodesAt(range) || range.startContainer);
+  if (node.nodeType !== Node.ELEMENT_NODE) node = node.parentElement;
+  for (; node && node !== editor && editor.contains(node); node = node.parentElement) {
+    if (node.style && node.style[prop]) return node.style[prop];
+    if (prop === 'color' && node.tagName === 'FONT' && node.getAttribute('color')) return node.getAttribute('color');
+  }
+  return null;
+}
+
+// 選択範囲にかかる最初の文字（テキストノード）を、分けずに探す
+function textNodesAt(range) {
+  const root = range.commonAncestorContainer;
+  if (root.nodeType === Node.TEXT_NODE) return root;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    if (!t.data || !range.intersectsNode(t)) continue;
+    if (t === range.startContainer && range.startOffset >= t.length) continue;
+    return t;
+  }
+  return null;
+}
+
+// 要素に書いたフォント指定は表記が変わることがあるので、一覧の値に戻す
+function normalizeFamily(family) {
+  const probe = document.createElement('span');
+  for (const [value] of FONT_FAMILIES) {
+    probe.style.fontFamily = value;
+    if (probe.style.fontFamily === family) return value;
+  }
+  return family;
+}
+
+function toHexColor(color) {
+  const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (!m) return color;
+  return '#' + m.slice(1, 4).map((v) => Number(v).toString(16).padStart(2, '0')).join('');
 }
 
 // 選択中の付箋に表示する、文字色・文字サイズ・フォントの変更バー（付箋の色は右クリックメニューで変える）
@@ -281,7 +366,9 @@ function createStyleBar(note, el) {
 
   // 本文の一部を選択していればその部分、なければ付箋全体の文字色を変える
   const setTextColor = (color) => {
-    if (!formatSelection(editor, 'color', color)) update({ textColor: color });
+    if (formatSelection(editor, 'color', color)) return sync();
+    clearInlineFormat(editor, 'color');
+    update({ textColor: color });
   };
 
   const swatches = TEXT_COLORS.map((color) => {
@@ -318,8 +405,9 @@ function createStyleBar(note, el) {
   }
   // 本文の一部を選択していればその部分、なければ付箋全体の文字サイズを変える
   const setFontSize = (size) => {
-    if (formatSelection(editor, 'fontSize', size + 'px')) sync();
-    else update({ fontSize: size });
+    if (formatSelection(editor, 'fontSize', size + 'px')) return sync();
+    clearInlineFormat(editor, 'fontSize');
+    update({ fontSize: size });
   };
   sizeSelect.addEventListener('change', () => setFontSize(Number(sizeSelect.value)));
 
@@ -337,7 +425,11 @@ function createStyleBar(note, el) {
     setFontSize(Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size)));
   });
   sizeInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sizeInput.blur();
+    // 反映時に本文へフォーカスが戻るので、Enter が本文の改行にならないようにする
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sizeInput.blur();
+    }
   });
 
   const fontSelect = document.createElement('select');
@@ -351,17 +443,21 @@ function createStyleBar(note, el) {
     fontSelect.appendChild(opt);
   }
   fontSelect.addEventListener('change', () => {
-    if (formatSelection(editor, 'fontFamily', fontSelect.value)) sync();
-    else update({ fontFamily: fontSelect.value });
+    if (formatSelection(editor, 'fontFamily', fontSelect.value)) return sync();
+    clearInlineFormat(editor, 'fontFamily');
+    update({ fontFamily: fontSelect.value });
   });
 
-  // 現在の設定をコントロールに反映する
+  // 現在の設定をコントロールに反映する。本文を選択中・入力中は、その位置の文字の書式を出す
   const sync = () => {
-    const textColor = note.textColor || DEFAULT_TEXT_COLOR;
+    const caretColor = formatAtCaret(editor, 'color');
+    const caretSize = parseFloat(formatAtCaret(editor, 'fontSize'));
+    const caretFamily = formatAtCaret(editor, 'fontFamily');
+    const textColor = caretColor ? toHexColor(caretColor) : note.textColor || DEFAULT_TEXT_COLOR;
     swatches.forEach((b) => b.classList.toggle('active', b.dataset.color === textColor));
     textColorInput.value = textColor;
-    const size = note.fontSize || DEFAULT_FONT_SIZE;
-    if (!FONT_SIZES.includes(size)) {
+    const size = caretSize ? Math.round(caretSize) : note.fontSize || DEFAULT_FONT_SIZE;
+    if (!Array.from(sizeSelect.options).some((opt) => Number(opt.value) === size)) {
       const opt = document.createElement('option');
       opt.value = size;
       opt.textContent = size + 'px';
@@ -369,8 +465,8 @@ function createStyleBar(note, el) {
     }
     sizeSelect.value = size;
     sizeInput.value = size;
-    const family = note.fontFamily || '';
-    if (!FONT_FAMILIES.some(([value]) => value === family)) {
+    const family = caretFamily != null ? normalizeFamily(caretFamily) : note.fontFamily || '';
+    if (!Array.from(fontSelect.options).some((opt) => opt.value === family)) {
       const opt = document.createElement('option');
       opt.value = family;
       opt.textContent = family;
