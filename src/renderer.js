@@ -35,13 +35,41 @@ const bgReset = document.getElementById('bg-reset');
 const FILE_FORMAT = 'fusenkokuban';
 const FILE_VERSION = 1;
 
-let state = load();
+// 自動保存するのはタブで切り替える黒板の一覧（workspace）。state は表示中の黒板
+let workspace = load();
+let state = workspace.boards.find((b) => b.id === workspace.active) || workspace.boards[0];
+workspace.active = state.id;
 let topZ = 0;
+
+function newBoard(name, background = DEFAULT_BG, notes = []) {
+  return { id: newId(), name, background, notes };
+}
+
+// 「黒板1」「黒板2」…のうち、まだ使っていない名前
+function nextBoardName(boards) {
+  const used = new Set(boards.map((b) => b.name));
+  let n = boards.length + 1;
+  for (let i = 1; i < n; i++) if (!used.has('黒板' + i)) return '黒板' + i;
+  while (used.has('黒板' + n)) n++;
+  return '黒板' + n;
+}
 
 function parseState(json) {
   try {
     const data = JSON.parse(json);
-    if (data && Array.isArray(data.notes)) return data;
+    const boards = Array.isArray(data?.boards) ? data.boards.filter((b) => b && Array.isArray(b.notes)) : [];
+    if (boards.length) {
+      for (const b of boards) {
+        b.id = b.id || newId();
+        b.name = b.name || nextBoardName(boards.filter((x) => x.name));
+        b.background = b.background || DEFAULT_BG;
+      }
+      return { version: 2, active: data.active, boards };
+    }
+    // 黒板が1枚だけだった旧版の形式
+    if (data && Array.isArray(data.notes)) {
+      return { version: 2, boards: [newBoard('黒板1', data.background || DEFAULT_BG, data.notes)] };
+    }
   } catch (e) { /* 壊れたデータは無視 */ }
   return null;
 }
@@ -50,7 +78,7 @@ function load() {
   // 旧版は localStorage に保存していたので、ファイルが無ければそちらから引き継ぐ
   return parseState(window.fusen.readState())
     || parseState(localStorage.getItem(STORAGE_KEY))
-    || { background: DEFAULT_BG, notes: [] };
+    || { version: 2, boards: [newBoard('黒板1')] };
 }
 
 // 文字入力のたびに書き込まないよう、少し待ってからまとめて保存する
@@ -65,23 +93,32 @@ function save() {
 function flushSave() {
   clearTimeout(saveTimer);
   saveTimer = null;
-  window.fusen.writeState(JSON.stringify(state)).catch(() => { /* 保存できなくても動作は継続 */ });
+  window.fusen.writeState(JSON.stringify(workspace)).catch(() => { /* 保存できなくても動作は継続 */ });
 }
 
 window.addEventListener('beforeunload', () => {
   if (saveTimer) {
     clearTimeout(saveTimer);
-    window.fusen.writeStateSync(JSON.stringify(state));
+    window.fusen.writeStateSync(JSON.stringify(workspace));
   }
 });
 
 // ---- 元に戻す・やり直し ----
 // 変更の直前に state の写しを積む。画像などの文字列は共有されるので写しは軽い
+// 履歴は黒板ごとに持ち、タブを切り替えるとその黒板の履歴に切り替わる
 const HISTORY_LIMIT = 100;
 const GROUP_MS = 1000; // 同じ操作が続く間（文字入力・色選び）は1回分にまとめる
-const undoStack = [];
-const redoStack = [];
+const histories = new Map();
+let undoStack;
+let redoStack;
 let lastRecord = { key: null, time: 0 };
+
+function useHistory(boardId) {
+  if (!histories.has(boardId)) histories.set(boardId, { undo: [], redo: [] });
+  ({ undo: undoStack, redo: redoStack } = histories.get(boardId));
+  lastRecord = { key: null, time: 0 };
+}
+useHistory(state.id);
 
 function snapshot() {
   return { background: state.background, notes: state.notes.map((n) => ({ ...n })) };
@@ -103,7 +140,9 @@ function restore(from, to) {
   // 文字入力中なら、戻したあとも同じ付箋の入力を続けられるようにする
   const focusedId = document.activeElement?.closest?.('.note')?.dataset.id;
   to.push(snapshot());
-  state = from.pop();
+  const snap = from.pop();
+  state.background = snap.background;
+  state.notes = snap.notes;
   lastRecord = { key: null, time: 0 };
   closeContextMenu();
   renderAll();
@@ -906,7 +945,8 @@ async function loadFromFile() {
   }
   if (state.notes.length && !confirm('現在のボードを読み込んだ内容で置き換えますか？')) return;
   recordHistory();
-  state = { background: data.background || DEFAULT_BG, notes: data.notes };
+  state.background = data.background || DEFAULT_BG;
+  state.notes = data.notes;
   renderAll();
   flushSave();
 }
@@ -916,6 +956,14 @@ loadButton.addEventListener('click', loadFromFile);
 document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
   const key = e.key.toLowerCase();
+  // Ctrl+Tab / Ctrl+Shift+Tab で黒板のタブを切り替える
+  if (key === 'tab' && e.ctrlKey) {
+    e.preventDefault();
+    cycleBoard(e.shiftKey ? -1 : 1);
+    return;
+  }
+  // タブ名の入力中は、入力欄の標準の操作に任せる
+  if (e.target.closest?.('#tabs')) return;
   // 元に戻す: Ctrl/Cmd+Z、やり直し: Ctrl/Cmd+Y または Ctrl/Cmd+Shift+Z
   // 文字入力中もブラウザ標準の取り消しではなく、ボード全体の履歴で戻す
   if (key === 'z') {
@@ -939,5 +987,119 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ---- 黒板のタブ ----
+const tabBar = document.getElementById('tabs');
+
+function switchBoard(id) {
+  const next = workspace.boards.find((b) => b.id === id);
+  if (!next || next === state) return;
+  // 入力中の文字やタブ名を確定してから切り替える
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  closeContextMenu();
+  state = next;
+  workspace.active = id;
+  useHistory(id);
+  renderAll();
+  renderTabs();
+  save();
+}
+
+function cycleBoard(step) {
+  const { boards } = workspace;
+  const i = boards.indexOf(state);
+  switchBoard(boards[(i + step + boards.length) % boards.length].id);
+}
+
+function addBoard() {
+  const b = newBoard(nextBoardName(workspace.boards));
+  workspace.boards.push(b);
+  switchBoard(b.id);
+  tabBar.querySelector('.tab.active')?.scrollIntoView({ inline: 'nearest' });
+}
+
+function deleteBoard(b) {
+  const { boards } = workspace;
+  if (boards.length <= 1) return;
+  if (b.notes.length && !confirm(`「${b.name}」を削除しますか？\n貼ってある付箋もすべて消え、元に戻せません。`)) return;
+  const i = boards.indexOf(b);
+  boards.splice(i, 1);
+  histories.delete(b.id);
+  if (b === state) {
+    state = null;
+    switchBoard(boards[Math.min(i, boards.length - 1)].id);
+  } else {
+    renderTabs();
+    save();
+  }
+}
+
+// タブ名をその場で書き換える（Enter / フォーカスを外すで確定、Esc で取り消し）
+function startRename(b, label) {
+  const input = document.createElement('input');
+  input.className = 'tab-rename';
+  input.value = b.name;
+  input.maxLength = 50;
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (commit && name && name !== b.name) {
+      b.name = name;
+      save();
+    }
+    renderTabs();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'Enter') finish(true);
+    if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('click', (e) => e.stopPropagation());
+  input.addEventListener('dblclick', (e) => e.stopPropagation());
+  label.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function renderTabs() {
+  tabBar.replaceChildren();
+  for (const b of workspace.boards) {
+    const tab = document.createElement('div');
+    tab.className = b === state ? 'tab active' : 'tab';
+    tab.dataset.id = b.id;
+    tab.title = 'クリックで切り替え／ダブルクリックで名前を変更';
+    const label = document.createElement('span');
+    label.className = 'tab-name';
+    label.textContent = b.name;
+    tab.appendChild(label);
+    if (workspace.boards.length > 1) {
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'tab-close';
+      close.title = '黒板を削除';
+      close.textContent = '×';
+      close.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteBoard(b);
+      });
+      close.addEventListener('dblclick', (e) => e.stopPropagation());
+      tab.appendChild(close);
+    }
+    tab.addEventListener('click', () => switchBoard(b.id));
+    tab.addEventListener('dblclick', () => startRename(b, label));
+    tabBar.appendChild(tab);
+  }
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.id = 'tab-add';
+  add.title = '黒板を追加';
+  add.textContent = '+';
+  add.addEventListener('click', addBoard);
+  tabBar.appendChild(add);
+}
+
 // ---- 初期表示 ----
 renderAll();
+renderTabs();

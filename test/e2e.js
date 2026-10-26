@@ -7,9 +7,9 @@ const path = require('path');
 
 (async () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'fusen-'));
-  const launch = () => electron.launch({
+  const launch = (dir = userData) => electron.launch({
     executablePath: require('electron'),
-    args: [path.join(__dirname, '..'), `--user-data-dir=${userData}`, '--no-sandbox'],
+    args: [path.join(__dirname, '..'), `--user-data-dir=${dir}`, '--no-sandbox'],
   });
 
   let app = await launch();
@@ -565,6 +565,78 @@ const path = require('path');
   assert.strictEqual(await freshText.evaluate((el) => el.innerText), 'aaaXYZaaa\nbbb');
   assert.strictEqual(await freshText.evaluate((el) => el.querySelectorAll('span div').length), 0, 'span の中に行が入らない');
   assert.strictEqual(await freshText.evaluate((el) => [...el.querySelectorAll('span')].every((s) => getComputedStyle(s).color === 'rgb(56, 142, 60)')), true);
+
+  // ---- 黒板のタブ ----
+  const tabs = page.locator('#tabs .tab');
+  const activeTabName = () => page.locator('#tabs .tab.active .tab-name').innerText();
+  const boardBg = () => page.$eval('#board', (el) => getComputedStyle(el).backgroundColor);
+  assert.strictEqual(await tabs.count(), 1);
+  assert.strictEqual(await page.locator('#tabs .tab-close').count(), 0, '1枚だけのときは削除ボタンなし');
+  const firstCount = await page.locator('.note').count();
+  const firstBg = await boardBg();
+  await page.click('#tab-add');
+  assert.strictEqual(await tabs.count(), 2);
+  assert.strictEqual(await activeTabName(), '黒板2');
+  assert.strictEqual(await page.locator('.note').count(), 0, '新しい黒板は空');
+  assert.strictEqual(await boardBg(), 'rgb(47, 93, 58)', '新しい黒板は緑');
+  await page.mouse.dblclick(400, 400);
+  await page.keyboard.type('2枚目');
+  await page.keyboard.press('Escape');
+  // 元に戻すは表示中の黒板だけに効く
+  await page.mouse.dblclick(700, 400);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await page.locator('.note').count(), 1);
+
+  // ダブルクリックで名前を変更（Esc で取り消し、Enter で確定）
+  await page.dblclick('#tabs .tab.active .tab-name');
+  await page.fill('.tab-rename', '取り消し');
+  await page.keyboard.press('Escape');
+  assert.strictEqual(await activeTabName(), '黒板2');
+  await page.dblclick('#tabs .tab.active .tab-name');
+  await page.fill('.tab-rename', '会議');
+  await page.keyboard.press('Enter');
+  assert.strictEqual(await activeTabName(), '会議');
+
+  // クリックで切り替え、内容と背景色は黒板ごと
+  await tabs.nth(0).click();
+  assert.strictEqual(await activeTabName(), '黒板1');
+  assert.strictEqual(await page.locator('.note').count(), firstCount);
+  assert.strictEqual(await boardBg(), firstBg);
+  // Ctrl+Tab で次の黒板へ
+  await page.mouse.click(1000, 700);
+  await page.keyboard.press('Control+Tab');
+  assert.strictEqual(await activeTabName(), '会議');
+  assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), '2枚目');
+  await app.close();
+
+  // 再起動後もタブと表示中の黒板が復元される
+  app = await launch();
+  page = await app.firstWindow();
+  await page.waitForSelector('#tabs .tab');
+  assert.deepStrictEqual(await page.locator('#tabs .tab-name').allInnerTexts(), ['黒板1', '会議']);
+  assert.strictEqual(await page.locator('#tabs .tab.active .tab-name').innerText(), '会議');
+  assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), '2枚目');
+
+  // 削除（付箋があれば確認する）
+  page.on('dialog', (d) => d.accept());
+  await page.click('#tabs .tab.active .tab-close');
+  assert.deepStrictEqual(await page.locator('#tabs .tab-name').allInnerTexts(), ['黒板1']);
+  assert.strictEqual(await page.locator('.note').count(), firstCount);
+  await app.close();
+
+  // 黒板1枚だけだった旧版の自動保存データを引き継ぐ
+  const oldData = fs.mkdtempSync(path.join(os.tmpdir(), 'fusen-old-'));
+  fs.writeFileSync(path.join(oldData, 'board.json'), JSON.stringify({
+    background: '#123456', notes: [{ id: 'a', x: 50, y: 100, w: 200, h: 100, z: 1, text: '旧版' }],
+  }));
+  app = await launch(oldData);
+  page = await app.firstWindow();
+  await page.waitForSelector('.note');
+  assert.deepStrictEqual(await page.locator('#tabs .tab-name').allInnerTexts(), ['黒板1']);
+  assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), '旧版');
+  assert.strictEqual(await page.$eval('#board', (el) => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 86)');
+  await page.screenshot({ path: path.join(userData, 'tabs.png') });
   await app.close();
 
   console.log('OK: all e2e checks passed (screenshot: ' + path.join(userData, 'shot.png') + ')');

@@ -7,12 +7,15 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="toolbar">
-    <label>背景色 <input type="color" id="bg-color"></label>
-    <button id="bg-reset" type="button">緑に戻す</button>
-    <button id="board-save" type="button" title="ファイルに保存 (Ctrl/Cmd+S)">保存</button>
-    <button id="board-load" type="button" title="ファイルから読み込み (Ctrl/Cmd+O)">読み込み</button>
-    <span class="hint">ダブルクリックで付箋を作成／画像はドロップか貼り付け</span>
+  <div id="topbar">
+    <div id="tabs"></div>
+    <div id="toolbar">
+      <label>背景色 <input type="color" id="bg-color"></label>
+      <button id="bg-reset" type="button">緑に戻す</button>
+      <button id="board-save" type="button" title="ファイルに保存 (Ctrl/Cmd+S)">保存</button>
+      <button id="board-load" type="button" title="ファイルから読み込み (Ctrl/Cmd+O)">読み込み</button>
+      <span class="hint">ダブルクリックで付箋を作成／画像はドロップか貼り付け</span>
+    </div>
   </div>
   <div id="board"></div>
   <script src="renderer.js"></script>
