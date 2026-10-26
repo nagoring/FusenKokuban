@@ -147,6 +147,47 @@ const path = require('path');
   assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).fontSize), '48px');
   await page.selectOption('.note-font-size', '24');
 
+  // 文字サイズを数値で指定する（範囲外は丸める）
+  await page.fill('.note-font-size-input', '21');
+  await page.press('.note-font-size-input', 'Enter');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '21px');
+  assert.strictEqual(await page.$eval('.note-font-size', (el) => el.value), '21', 'プルダウンにも反映');
+  await page.fill('.note-font-size-input', '999');
+  await page.press('.note-font-size-input', 'Enter');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '200px');
+  assert.strictEqual(await page.$eval('.note-font-size-input', (el) => el.value), '200');
+  await page.selectOption('.note-font-size', '24');
+  assert.strictEqual(await page.$eval('.note-font-size-input', (el) => el.value), '24');
+
+  // フォント変更: 選択なしは付箋全体、選択ありはその部分だけ
+  const mincho = await page.$eval('.note-font-family', (el) => [...el.options].find((o) => o.textContent === '明朝').value);
+  const mono = await page.$eval('.note-font-family', (el) => [...el.options].find((o) => o.textContent === '等幅').value);
+  await page.selectOption('.note-font-family', mincho);
+  assert.match(await page.$eval('.note-text', (el) => getComputedStyle(el).fontFamily), /serif$/);
+  await page.$eval('.note-text', (el) => {
+    const t = el.firstChild;
+    const r = document.createRange();
+    r.setStart(t, 0);
+    r.setEnd(t, 2);
+    el.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+  });
+  await page.waitForTimeout(50);
+  await page.selectOption('.note-font-family', mono);
+  await page.fill('.note-font-size-input', '30');
+  await page.press('.note-font-size-input', 'Enter');
+  assert.deepStrictEqual(await page.$eval('.note-text', (el) => {
+    const span = el.querySelector('span');
+    return { text: span.textContent, family: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
+      baseSize: getComputedStyle(el).fontSize };
+  }), { text: 'こん', family: mono, size: '30px', baseSize: '24px' }, '選択部分にフォントと数値サイズが付く');
+  assert.strictEqual(await page.$eval('.note-font-family', (el) => el.value), mincho, 'バーの表示は付箋全体のフォント');
+  await page.$eval('.note-text', (el) => window.getSelection().collapse(el.firstChild, 0));
+  await page.waitForTimeout(50);
+  await page.selectOption('.note-font-family', '');
+
   // 選択中のスクショ
   await page.screenshot({ path: path.join(userData, 'selected.png') });
 
@@ -173,8 +214,10 @@ const path = require('path');
   assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(198, 40, 40)');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
-  assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).color), 'rgb(46, 125, 50)');
-  assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).fontSize), '48px');
+  assert.strictEqual(await page.$eval('.note-text span:last-child', (el) => getComputedStyle(el).color), 'rgb(46, 125, 50)');
+  assert.strictEqual(await page.$eval('.note-text span:last-child', (el) => getComputedStyle(el).fontSize), '48px');
+  assert.deepStrictEqual(await page.$eval('.note-text span', (el) => [el.textContent, el.style.fontSize, !!el.style.fontFamily]),
+    ['こん', '30px', true], 'フォント・数値サイズも復元される');
 
   // ---- ファイルへの保存・読み込み ----
   const savePath = path.join(userData, 'board.fusen');

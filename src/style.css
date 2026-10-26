@@ -113,6 +113,8 @@ html, body {
 .note-style input[type="color"] { width: 24px; height: 20px; border: none; padding: 0; background: none; cursor: pointer; }
 .note-style .text-color { display: flex; align-items: center; gap: 2px; margin-left: 4px; font-weight: bold; cursor: pointer; }
 .note-style select { font-size: 12px; }
+.note-style .note-font-size-input { width: 44px; font-size: 12px; }
+.note-style .note-font-family { max-width: 120px; }
 
 .note-grip {
   position: absolute;
