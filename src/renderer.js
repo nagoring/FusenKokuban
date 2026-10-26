@@ -989,6 +989,33 @@ async function loadFromFile() {
   flushSave();
 }
 
+// ---- 画像として書き出し ----
+// 範囲は表示中の画面（黒板）。ツールバーや選択ハンドルなどの UI は写さない
+const exportButton = document.getElementById('board-export');
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
+async function exportImage() {
+  let png;
+  document.body.classList.add('exporting');
+  try {
+    // UI を隠した状態が描画されてから撮る
+    await nextFrame();
+    await nextFrame();
+    png = await window.fusen.captureBoard();
+  } catch (e) {
+    alert('画像を作成できませんでした。\n' + e.message);
+    return;
+  } finally {
+    document.body.classList.remove('exporting');
+  }
+  try {
+    await window.fusen.exportImage(png, state.name);
+  } catch (e) {
+    alert('画像を保存できませんでした。\n' + e.message);
+  }
+}
+
+exportButton.addEventListener('click', exportImage);
 saveButton.addEventListener('click', saveToFile);
 loadButton.addEventListener('click', loadFromFile);
 document.addEventListener('keydown', (e) => {
@@ -1022,6 +1049,9 @@ document.addEventListener('keydown', (e) => {
   } else if (key === 'o') {
     e.preventDefault();
     loadFromFile();
+  } else if (key === 'e') {
+    e.preventDefault();
+    exportImage();
   }
 });
 
