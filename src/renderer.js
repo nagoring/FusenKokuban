@@ -274,6 +274,8 @@ document.addEventListener('selectionchange', () => {
   if (!editor.contains(range.startContainer)) range.setStart(editor, 0);
   if (!editor.contains(range.endContainer)) range.setEnd(editor, editor.childNodes.length);
   savedRanges.set(editor, range);
+  // カーソルが離れた、入力されなかった書式の目印を消す
+  if (sel.isCollapsed) cleanPending(editor);
   editor.closest('.note')?.syncStyleBar?.();
 });
 
@@ -330,20 +332,65 @@ function formatSelection(editor, prop, value) {
   return true;
 }
 
-// 付箋全体の書式を変えるときは、本文の一部に付けた同じ書式も外して全体を揃える
-function clearInlineFormat(editor, prop) {
-  let changed = false;
-  editor.querySelectorAll('[style]').forEach((el) => {
-    if (!el.style[prop]) return;
-    el.style[prop] = '';
-    if (!el.getAttribute('style')) {
-      el.removeAttribute('style');
-      // 書式が無くなった span は外す
-      if (el.tagName === 'SPAN') el.replaceWith(...el.childNodes);
+// 選択していないときは、カーソル位置にこれから入力する文字の書式を置く。
+// 空の span には文字を入力できないので、目印のゼロ幅スペースを入れておき、入力後に取り除く
+const PENDING = '\u200B';
+
+function formatTyping(editor, prop, value) {
+  let range = savedRanges.get(editor);
+  if (!range || !editor.contains(range.startContainer)) {
+    // まだカーソルを置いていなければ末尾から入力する
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  recordHistory('format:' + prop);
+  const node = range.startContainer;
+  let span;
+  if (node.nodeType === Node.TEXT_NODE && node.data === PENDING
+      && node.parentNode.tagName === 'SPAN' && node.parentNode.childNodes.length === 1) {
+    // 続けて別の書式を選んだら、同じ場所の書式に重ねる
+    span = node.parentNode;
+  } else {
+    span = document.createElement('span');
+    span.appendChild(document.createTextNode(PENDING));
+    range.collapse(true);
+    range.insertNode(span);
+  }
+  span.style[prop] = value;
+  editor.focus();
+  const r = document.createRange();
+  r.setStart(span.firstChild, PENDING.length);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+  savedRanges.set(editor, r.cloneRange());
+}
+
+// 目印のゼロ幅スペースを片付ける。入力済みの文字からは取り除き、
+// 何も入力されなかった書式（カーソルが離れたもの）は消す
+function cleanPending(editor) {
+  if (editor.dataset.composing) return;
+  const sel = window.getSelection();
+  const caret = sel.rangeCount ? sel.getRangeAt(0) : null;
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    if (t.data.includes(PENDING)) nodes.push(t);
+  }
+  for (const t of nodes) {
+    const hasCaret = caret && caret.collapsed && caret.startContainer === t;
+    if (t.data === PENDING) {
+      if (hasCaret) continue;
+      const parent = t.parentNode;
+      t.remove();
+      if (parent !== editor && parent.tagName === 'SPAN' && !parent.childNodes.length) parent.remove();
+      continue;
     }
-    changed = true;
-  });
-  if (changed) editor.dispatchEvent(new Event('input'));
+    const offset = hasCaret ? caret.startOffset - t.data.slice(0, caret.startOffset).split(PENDING).length + 1 : -1;
+    t.data = t.data.split(PENDING).join('');
+    if (hasCaret) sel.collapse(t, offset);
+  }
 }
 
 // カーソル位置（選択範囲の先頭）の文字に効いている書式。部分指定が無ければ null
@@ -395,20 +442,12 @@ function createStyleBar(note, el) {
   bar.className = 'note-style';
   const editor = el.querySelector('.note-text');
 
-  const update = (patch) => {
-    recordHistory('style:' + note.id + ':' + Object.keys(patch).join());
-    Object.assign(note, patch);
-    applyStyle(note, el);
+  // 本文の一部を選択していればその部分、なければカーソル位置からこれから入力する文字の書式を変える
+  const applyFormat = (prop, value) => {
+    if (!formatSelection(editor, prop, value)) formatTyping(editor, prop, value);
     sync();
-    save();
   };
-
-  // 本文の一部を選択していればその部分、なければ付箋全体の文字色を変える
-  const setTextColor = (color) => {
-    if (formatSelection(editor, 'color', color)) return sync();
-    clearInlineFormat(editor, 'color');
-    update({ textColor: color });
-  };
+  const setTextColor = (color) => applyFormat('color', color);
 
   const swatches = TEXT_COLORS.map((color) => {
     const b = document.createElement('button');
@@ -442,12 +481,7 @@ function createStyleBar(note, el) {
     opt.textContent = size + 'px';
     sizeSelect.appendChild(opt);
   }
-  // 本文の一部を選択していればその部分、なければ付箋全体の文字サイズを変える
-  const setFontSize = (size) => {
-    if (formatSelection(editor, 'fontSize', size + 'px')) return sync();
-    clearInlineFormat(editor, 'fontSize');
-    update({ fontSize: size });
-  };
+  const setFontSize = (size) => applyFormat('fontSize', size + 'px');
   sizeSelect.addEventListener('change', () => setFontSize(Number(sizeSelect.value)));
 
   // 一覧に無い大きさは数値で指定する（Enter / フォーカスを外す / 上下ボタンで反映）
@@ -481,11 +515,7 @@ function createStyleBar(note, el) {
     if (value) opt.style.fontFamily = value;
     fontSelect.appendChild(opt);
   }
-  fontSelect.addEventListener('change', () => {
-    if (formatSelection(editor, 'fontFamily', fontSelect.value)) return sync();
-    clearInlineFormat(editor, 'fontFamily');
-    update({ fontFamily: fontSelect.value });
-  });
+  fontSelect.addEventListener('change', () => applyFormat('fontFamily', fontSelect.value));
 
   // 現在の設定をコントロールに反映する。本文を選択中・入力中は、その位置の文字の書式を出す
   const sync = () => {
@@ -603,11 +633,19 @@ function renderNote(note) {
     content.spellcheck = false;
     content.innerHTML = noteHtml(note);
     content.addEventListener('beforeinput', () => recordHistory('text:' + note.id));
-    content.addEventListener('input', () => {
-      note.html = content.innerHTML;
-      note.text = content.innerText;
+    content.addEventListener('input', (e) => {
+      // 変換中に文字を触ると入力が崩れるので、確定してから目印を片付ける
+      if (!e.isComposing) cleanPending(content);
+      note.html = content.innerHTML.split(PENDING).join('');
+      note.text = content.innerText.split(PENDING).join('');
       save();
     });
+    content.addEventListener('compositionstart', () => { content.dataset.composing = '1'; });
+    content.addEventListener('compositionend', () => setTimeout(() => {
+      delete content.dataset.composing;
+      cleanPending(content);
+      content.dispatchEvent(new Event('input'));
+    }));
     // Esc で文字入力を終えて、付箋の選択表示（拡大縮小ハンドル）に戻す
     content.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !e.isComposing) content.blur();
