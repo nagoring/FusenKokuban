@@ -85,7 +85,7 @@ html, body {
 .note.selected .resizer { display: block; }
 .note.selected .note-style { display: flex; }
 
-/* 付箋の色・文字色・文字サイズの変更バー（選択中のみ表示） */
+/* 文字色・文字サイズの変更バー（選択中のみ表示） */
 .note-style {
   position: absolute;
   z-index: 3;

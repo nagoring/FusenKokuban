@@ -78,10 +78,13 @@ const path = require('path');
       exp, 'resize ' + dir);
   }
 
-  // 付箋の色・文字色・文字サイズ変更
+  // 文字色・文字サイズ変更（バーの丸ボタンは文字色）
   assert.strictEqual(await page.locator('.note-style').isVisible(), true);
-  await page.click('.note-style .swatch[data-color="#f8bbd0"]');
-  assert.strictEqual(await note.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
+  assert.strictEqual(await page.locator('.note-style .note-color').count(), 0, '付箋の色ピッカーはバーに無い');
+  await page.click('.note-style .swatch[data-color="#d32f2f"]');
+  assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(211, 47, 47)');
+  assert.strictEqual(await note.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)', '付箋の色は変わらない');
+  assert.strictEqual(await page.$eval('.note-style .swatch.active', (el) => el.dataset.color), '#d32f2f');
   await page.$eval('.note-text-color', (el) => {
     el.value = '#c62828';
     el.dispatchEvent(new Event('input'));
@@ -167,7 +170,7 @@ const path = require('path');
   await page.waitForSelector('.note');
   assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), 'こんにちは hello');
   assert.strictEqual(await page.$eval('#board', (el) => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 86)');
-  assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
+  assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).color), 'rgb(198, 40, 40)');
   assert.strictEqual(await page.$eval('.note-text', (el) => getComputedStyle(el).fontSize), '24px');
   assert.strictEqual(await page.$eval('.note-text span', (el) => getComputedStyle(el).color), 'rgb(46, 125, 50)');
@@ -203,7 +206,7 @@ const path = require('path');
   await page.waitForFunction(() => document.querySelectorAll('.note').length === 1);
   assert.strictEqual(await page.$eval('.note-text', (el) => el.innerText), 'こんにちは hello');
   assert.strictEqual(await page.$eval('#board', (el) => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 86)');
-  assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(248, 187, 208)');
+  assert.strictEqual(await page.$eval('.note', (el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)');
 
   // ショートカットでも保存できる
   const savePath2 = path.join(userData, 'board2.fusen');
@@ -380,11 +383,11 @@ const path = require('path');
   const p0 = await pos();
   await drag('.note:last-of-type .note-grip', 60, 40);
   assert.deepStrictEqual(await pos(), [p0[0] + 60, p0[1] + 40]);
-  await page.click('.note:last-of-type .note-style .swatch[data-color="#b3e5fc"]');
-  const bgOf = () => page.$eval('.note:last-of-type', (el) => getComputedStyle(el).backgroundColor);
-  assert.strictEqual(await bgOf(), 'rgb(179, 229, 252)');
+  await page.click('.note:last-of-type .note-style .swatch[data-color="#1976d2"]');
+  const fgOf = () => page.$eval('.note:last-of-type .note-text', (el) => getComputedStyle(el).color);
+  assert.strictEqual(await fgOf(), 'rgb(25, 118, 210)');
   await page.keyboard.press('Control+z');
-  assert.strictEqual(await bgOf(), 'rgb(255, 245, 157)');
+  assert.strictEqual(await fgOf(), 'rgb(34, 34, 34)');
   await page.keyboard.press('Control+z');
   assert.deepStrictEqual(await pos(), p0);
 
@@ -412,12 +415,11 @@ const path = require('path');
   await page.keyboard.press('Escape');
   assert.strictEqual(await menu.isVisible(), false);
 
-  // 色を変える（スタイルバーの表示も合わせる）
+  // 色を変える
   await openMenu();
   await page.click('#context-menu .swatch[data-color="#c5e1a5"]');
   assert.strictEqual(await menu.isVisible(), false, '選んだら閉じる');
   assert.strictEqual(await target.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(197, 225, 165)');
-  assert.strictEqual(await page.$eval('.note:last-of-type .note-style .swatch.active', (el) => el.dataset.color), '#c5e1a5');
   await page.keyboard.press('Control+z');
   assert.strictEqual(await page.locator('.note:last-of-type').evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(255, 245, 157)', 'メニューでの変更も戻せる');
 
