@@ -618,6 +618,83 @@ const path = require('path');
   assert.deepStrictEqual(await colorsOf(),
     ['aaa:rgb(56, 142, 60)', 'XYZ:rgb(56, 142, 60)', 'aaa:rgb(56, 142, 60)', 'bbb:rgb(56, 142, 60)']);
 
+  // ---- 矢印 ----
+  const arrow = page.locator('.arrow');
+  const arrowPos = () => page.$eval('.arrow .arrow-hit', (l) => ['x1', 'y1', 'x2', 'y2'].map((k) => Number(l.getAttribute(k))));
+  await page.keyboard.press('Escape');
+  await page.mouse.click(1000, 760);
+  await page.click('#arrow-tool');
+  assert.strictEqual(await page.locator('#arrow-tool.active').count(), 1, '矢印モードになる');
+  // 短いクリックでは作らない
+  await page.mouse.click(150, 720);
+  assert.strictEqual(await arrow.count(), 0);
+  await page.mouse.move(150, 720);
+  await page.mouse.down();
+  await page.mouse.move(350, 740, { steps: 5 });
+  await page.mouse.up();
+  assert.strictEqual(await arrow.count(), 1, 'ドラッグで矢印ができる');
+  assert.deepStrictEqual(await arrowPos(), [150, 720, 350, 740]);
+  assert.strictEqual(await page.locator('#arrow-tool.active').count(), 0, '描いたら矢印モードは終わる');
+  assert.strictEqual(await arrow.evaluate((el) => el.classList.contains('selected')), true, '描いた矢印は選択中');
+  assert.strictEqual(await page.locator('.arrow-handle.end').isVisible(), true);
+  // 終点の丸で端だけ動かす、線をつかむと全体を動かす
+  await page.mouse.move(350, 740);
+  await page.mouse.down();
+  await page.mouse.move(400, 700, { steps: 5 });
+  await page.mouse.up();
+  assert.deepStrictEqual(await arrowPos(), [150, 720, 400, 700], '終点だけ動く');
+  await page.mouse.move(275, 710);
+  await page.mouse.down();
+  await page.mouse.move(295, 700, { steps: 5 });
+  await page.mouse.up();
+  assert.deepStrictEqual(await arrowPos(), [170, 710, 420, 690], '全体が動く');
+  // 黒板をクリックすると選択が外れ、線をクリックすると選択される
+  await page.mouse.click(1000, 760);
+  assert.strictEqual(await page.locator('.arrow-handle.end').isVisible(), false);
+  await page.mouse.click(295, 700);
+  assert.strictEqual(await page.locator('.arrow-handle.end').isVisible(), true);
+  // 右クリックで色・太さを変える
+  await page.mouse.click(295, 700, { button: 'right' });
+  assert.strictEqual(await menu.isVisible(), true);
+  await menu.locator('.swatch[data-color="#ef5350"]').click();
+  assert.strictEqual(await page.$eval('.arrow-line', (l) => l.getAttribute('stroke')), '#ef5350');
+  assert.strictEqual(await page.$eval('.arrow-head', (l) => l.getAttribute('fill')), '#ef5350');
+  await page.mouse.click(295, 700, { button: 'right' });
+  await menu.locator('.edge[data-width="8"]').click();
+  assert.strictEqual(await page.$eval('.arrow-line', (l) => l.getAttribute('stroke-width')), '8');
+  await page.mouse.click(295, 700, { button: 'right' });
+  await menu.locator('.menu-flip').click();
+  assert.deepStrictEqual(await arrowPos(), [420, 690, 170, 710], '向きを反転');
+  // 自動保存される
+  await page.waitForTimeout(500);
+  const savedArrow = JSON.parse(fs.readFileSync(path.join(userData, 'board.json'), 'utf8'))
+    .boards[0].notes.find((n) => n.type === 'arrow');
+  assert.deepStrictEqual(savedArrow && [savedArrow.x1, savedArrow.y1, savedArrow.x2, savedArrow.y2, savedArrow.color, savedArrow.width],
+    [420, 690, 170, 710, '#ef5350', 8]);
+  // Delete で削除、元に戻すで復活
+  await page.keyboard.press('Delete');
+  assert.strictEqual(await arrow.count(), 0, 'Delete で削除');
+  await page.keyboard.press('Control+z');
+  assert.strictEqual(await arrow.count(), 1, '元に戻すで復活');
+  await page.keyboard.press('Control+z');
+  assert.deepStrictEqual(await arrowPos(), [170, 710, 420, 690], '反転も元に戻せる');
+  // 矢印モード中は付箋の上からでも引ける。Esc で取りやめ
+  await page.click('#arrow-tool');
+  await page.keyboard.press('Escape');
+  assert.strictEqual(await page.locator('#arrow-tool.active').count(), 0, 'Esc で矢印モードをやめる');
+  const lastNote = page.locator('.note').last();
+  const fb = await lastNote.boundingBox();
+  await page.click('#arrow-tool');
+  await page.mouse.move(fb.x + 30, fb.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(fb.x + 30, fb.y - 60, { steps: 5 });
+  await page.mouse.up();
+  assert.strictEqual(await arrow.count(), 2, '付箋の上から矢印を引ける');
+  assert.strictEqual(await lastNote.evaluate((el) => el.contains(document.activeElement)), false, '付箋の入力にはならない');
+  await page.screenshot({ path: path.join(userData, 'arrows.png') });
+  await page.keyboard.press('Delete');
+  await page.mouse.click(1000, 760);
+
   // ---- 黒板のタブ ----
   const tabs = page.locator('#tabs .tab');
   const activeTabName = () => page.locator('#tabs .tab.active .tab-name').innerText();

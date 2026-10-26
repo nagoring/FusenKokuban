@@ -27,6 +27,12 @@ const FONT_FAMILIES = [
   ['"Comic Sans MS", "Comic Neue", cursive', 'Comic Sans'],
 ];
 const STYLE_BAR_SPACE = 40; // 付箋の上にスタイルバーを出せる最小の余白
+// 矢印は黒板に直接描くので、チョークのような明るい色を既定にする
+const ARROW_COLORS = ['#ffffff', '#fff176', '#ef5350', '#42a5f5', '#66bb6a', '#ffa726', '#222222'];
+const ARROW_WIDTHS = [[2, '細'], [4, '中'], [8, '太']];
+const DEFAULT_ARROW_COLOR = '#ffffff';
+const DEFAULT_ARROW_WIDTH = 4;
+const ARROW_MIN_LENGTH = 10; // これより短いドラッグでは矢印を作らない
 
 const board = document.getElementById('board');
 const bgInput = document.getElementById('bg-color');
@@ -602,7 +608,7 @@ function resizeBy(dir, note, dx, dy, start) {
 }
 
 function select(el) {
-  document.querySelectorAll('.note.selected').forEach((n) => {
+  document.querySelectorAll('.note.selected, .arrow.selected').forEach((n) => {
     if (n === el) return;
     n.classList.remove('selected');
     const editor = n.querySelector('.note-text');
@@ -612,6 +618,7 @@ function select(el) {
 }
 
 function renderNote(note) {
+  if (note.type === 'arrow') return renderArrow(note);
   const el = document.createElement('div');
   const isImage = note.type === 'image';
   el.className = isImage ? 'note image' : 'note';
@@ -782,6 +789,36 @@ function openContextMenu(note, el, x, y) {
     return b;
   };
 
+  if (note.type === 'arrow') {
+    item('色を変える', ...ARROW_COLORS.map((color) => {
+      const b = button('', color, () => setArrowStyle(note, el, { color }), 'swatch');
+      b.dataset.color = color;
+      b.style.background = color;
+      b.classList.toggle('active', (note.color || DEFAULT_ARROW_COLOR) === color);
+      return b;
+    }));
+    item('太さ', ...ARROW_WIDTHS.map(([width, text]) => {
+      const b = button(text, `太さ ${width}px`, () => setArrowStyle(note, el, { width }), 'edge');
+      b.dataset.width = width;
+      b.classList.toggle('active', (note.width || DEFAULT_ARROW_WIDTH) === width);
+      return b;
+    }));
+    const flipRow = item('向きを反転');
+    flipRow.classList.add('menu-action', 'menu-flip');
+    flipRow.addEventListener('click', () => {
+      closeContextMenu();
+      flipArrow(note, el);
+    });
+    const removeRow = item('矢印を消す');
+    removeRow.classList.add('menu-action', 'menu-close');
+    removeRow.addEventListener('click', () => {
+      closeContextMenu();
+      deleteNote(note, el);
+    });
+    showContextMenu(x, y);
+    return;
+  }
+
   if (note.type !== 'image') {
     item('色を変える', ...NOTE_COLORS.map((color) => {
       const b = button('', color, () => setNoteColor(note, el, color), 'swatch');
@@ -804,7 +841,10 @@ function openContextMenu(note, el, x, y) {
     closeContextMenu();
     deleteNote(note, el);
   });
+  showContextMenu(x, y);
+}
 
+function showContextMenu(x, y) {
   contextMenu.hidden = false;
   // 画面からはみ出さない位置に出す
   const { width, height } = contextMenu.getBoundingClientRect();
@@ -816,7 +856,10 @@ contextMenu.addEventListener('pointerdown', (e) => e.stopPropagation());
 contextMenu.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('pointerdown', closeContextMenu);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeContextMenu();
+  if (e.key === 'Escape') {
+    closeContextMenu();
+    setArrowMode(false);
+  }
 });
 // 選択中の付箋を Delete で削除（Mac は Backspace でも）。文字入力中は文字の削除として扱う
 const IS_MAC = navigator.userAgent.includes('Mac');
@@ -825,7 +868,7 @@ document.addEventListener('keydown', (e) => {
   if (!(e.key === 'Delete' || (IS_MAC && e.key === 'Backspace'))) return;
   const active = document.activeElement;
   if (active && (active.isContentEditable || active.matches('input, textarea, select'))) return;
-  const el = board.querySelector('.note.selected');
+  const el = board.querySelector('.note.selected, .arrow.selected');
   const note = el && state.notes.find((n) => n.id === el.dataset.id);
   if (!note) return;
   e.preventDefault();
@@ -863,9 +906,202 @@ board.addEventListener('pointerdown', (e) => {
 });
 
 board.addEventListener('dblclick', (e) => {
-  if (e.target !== board) return;
+  if (e.target !== board || arrowMode) return;
   createNote(e.clientX, e.clientY);
 });
+
+// ---- 矢印 ----
+// 付箋とは別の図形として、始点 (x1, y1) から終点 (x2, y2) へ黒板に直接描く。
+// 付箋と同じ notes に type: 'arrow' で入れるので、重なり順・元に戻す・保存は付箋と共通
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const arrowToolButton = document.getElementById('arrow-tool');
+let arrowMode = false;
+
+function svg(tag, className) {
+  const node = document.createElementNS(SVG_NS, tag);
+  if (className) node.setAttribute('class', className);
+  return node;
+}
+
+function setArrowMode(on) {
+  arrowMode = on;
+  arrowToolButton.classList.toggle('active', on);
+  board.classList.toggle('arrow-mode', on);
+}
+
+arrowToolButton.addEventListener('click', () => setArrowMode(!arrowMode));
+
+// 矢じりの大きさは線の太さに合わせる
+const arrowHeadLength = (width) => 8 + width * 3;
+
+function applyArrow(note, el) {
+  const width = note.width || DEFAULT_ARROW_WIDTH;
+  const color = note.color || DEFAULT_ARROW_COLOR;
+  const { x1, y1, x2, y2 } = note;
+  const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+  const ux = (x2 - x1) / len;
+  const uy = (y2 - y1) / len;
+  const head = Math.min(arrowHeadLength(width), len);
+  const half = head * 0.55;
+  // 線の先が矢じりからはみ出さないよう、矢じりの途中で止める
+  const bx = x2 - ux * head;
+  const by = y2 - uy * head;
+  const lx = x2 - ux * head * 0.7;
+  const ly = y2 - uy * head * 0.7;
+  const set = (node, attrs) => Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+  set(el.querySelector('.arrow-hit'), { x1, y1, x2, y2, 'stroke-width': Math.max(14, width + 10) });
+  set(el.querySelector('.arrow-line'), { x1, y1, x2: lx, y2: ly, stroke: color, 'stroke-width': width });
+  set(el.querySelector('.arrow-head'), {
+    fill: color,
+    points: [[x2, y2], [bx - uy * half, by + ux * half], [bx + uy * half, by - ux * half]]
+      .map((p) => p.join(',')).join(' '),
+  });
+  set(el.querySelector('.arrow-handle.start'), { cx: x1, cy: y1 });
+  set(el.querySelector('.arrow-handle.end'), { cx: x2, cy: y2 });
+}
+
+function renderArrow(note) {
+  const el = document.createElement('div');
+  el.className = 'arrow';
+  el.dataset.id = note.id;
+  el.style.zIndex = note.z;
+  const root = svg('svg', 'arrow-svg');
+  const hit = svg('line', 'arrow-hit');
+  const line = svg('line', 'arrow-line');
+  const head = svg('polygon', 'arrow-head');
+  const start = svg('circle', 'arrow-handle start');
+  const end = svg('circle', 'arrow-handle end');
+  start.setAttribute('r', 6);
+  end.setAttribute('r', 6);
+  root.append(line, head, hit, start, end);
+  el.appendChild(root);
+  applyArrow(note, el);
+
+  // 線をつかむと移動、両端の丸をつかむとその端だけ動かす
+  for (const part of [hit, line, head]) part.addEventListener('pointerdown', (e) => startArrowDrag(e, note, el, 'move'));
+  start.addEventListener('pointerdown', (e) => startArrowDrag(e, note, el, 'start'));
+  end.addEventListener('pointerdown', (e) => startArrowDrag(e, note, el, 'end'));
+  el.addEventListener('pointerdown', () => {
+    bringToFront(note, el);
+    select(el);
+  }, true);
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    bringToFront(note, el);
+    select(el);
+    openContextMenu(note, el, e.clientX, e.clientY);
+  });
+  el.addEventListener('dblclick', (e) => e.stopPropagation());
+  board.appendChild(el);
+  return el;
+}
+
+// Shift を押しながらだと 45° 刻みにそろえる
+function snapAngle(fx, fy, x, y) {
+  const len = Math.hypot(x - fx, y - fy);
+  const step = Math.PI / 4;
+  const angle = Math.round(Math.atan2(y - fy, x - fx) / step) * step;
+  return [Math.round(fx + Math.cos(angle) * len), Math.round(fy + Math.sin(angle) * len)];
+}
+
+function startArrowDrag(e, note, el, mode) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  bringToFront(note, el);
+  select(el);
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const start = { x1: note.x1, y1: note.y1, x2: note.x2, y2: note.y2 };
+  const target = e.currentTarget;
+  target.setPointerCapture(e.pointerId);
+
+  let moved = false;
+  const move = (ev) => {
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    if (!moved) {
+      moved = true;
+      recordHistory();
+    }
+    if (mode === 'move') {
+      Object.assign(note, { x1: start.x1 + dx, y1: start.y1 + dy, x2: start.x2 + dx, y2: start.y2 + dy });
+    } else {
+      const [fx, fy] = mode === 'start' ? [start.x2, start.y2] : [start.x1, start.y1];
+      let x = (mode === 'start' ? start.x1 : start.x2) + dx;
+      let y = (mode === 'start' ? start.y1 : start.y2) + dy;
+      if (ev.shiftKey) [x, y] = snapAngle(fx, fy, x, y);
+      if (mode === 'start') Object.assign(note, { x1: x, y1: y });
+      else Object.assign(note, { x2: x, y2: y });
+    }
+    applyArrow(note, el);
+  };
+  const up = () => {
+    target.removeEventListener('pointermove', move);
+    target.removeEventListener('pointerup', up);
+    target.removeEventListener('pointercancel', up);
+    if (moved) save();
+  };
+  target.addEventListener('pointermove', move);
+  target.addEventListener('pointerup', up);
+  target.addEventListener('pointercancel', up);
+}
+
+// 矢印モード中は、付箋の上からでもドラッグで矢印を引ける（付箋同士を指す矢印を描けるように）
+board.addEventListener('pointerdown', (e) => {
+  if (!arrowMode || e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  closeContextMenu();
+  const x1 = e.clientX;
+  const y1 = e.clientY;
+  let note = null;
+  let el = null;
+  board.setPointerCapture(e.pointerId);
+  const move = (ev) => {
+    let [x2, y2] = [ev.clientX, ev.clientY];
+    if (ev.shiftKey) [x2, y2] = snapAngle(x1, y1, x2, y2);
+    if (!note) {
+      if (Math.hypot(x2 - x1, y2 - y1) < ARROW_MIN_LENGTH) return;
+      note = { id: newId(), type: 'arrow', x1, y1, x2, y2, z: ++topZ,
+        color: DEFAULT_ARROW_COLOR, width: DEFAULT_ARROW_WIDTH };
+      recordHistory();
+      state.notes.push(note);
+      el = renderArrow(note);
+      select(el);
+    }
+    Object.assign(note, { x2, y2 });
+    applyArrow(note, el);
+  };
+  const up = () => {
+    board.removeEventListener('pointermove', move);
+    board.removeEventListener('pointerup', up);
+    board.removeEventListener('pointercancel', up);
+    if (note) {
+      save();
+      setArrowMode(false);
+    }
+  };
+  board.addEventListener('pointermove', move);
+  board.addEventListener('pointerup', up);
+  board.addEventListener('pointercancel', up);
+}, true);
+
+function setArrowStyle(note, el, style) {
+  recordHistory();
+  Object.assign(note, style);
+  applyArrow(note, el);
+  save();
+}
+
+function flipArrow(note, el) {
+  recordHistory();
+  Object.assign(note, { x1: note.x2, y1: note.y2, x2: note.x1, y2: note.y1 });
+  applyArrow(note, el);
+  save();
+}
 
 // ---- 画像の付箋 ----
 const IMAGE_MAX_SIZE = 400; // 貼り付け直後の最大サイズ（長辺）
@@ -945,7 +1181,7 @@ document.addEventListener('paste', (e) => {
 
 // 現在の state でボード全体を描き直す
 function renderAll() {
-  board.querySelectorAll('.note').forEach((el) => el.remove());
+  board.querySelectorAll('.note, .arrow').forEach((el) => el.remove());
   topZ = state.notes.reduce((z, n) => Math.max(z, n.z || 0), 0);
   setBackground(state.background || DEFAULT_BG);
   state.notes.forEach(renderNote);
