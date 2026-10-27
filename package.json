@@ -1,6 +1,6 @@
 {
   "name": "fusenkokuban",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "description": "黒板に付箋を貼るデスクトップアプリ",
   "main": "main.js",
   "scripts": {
@@ -28,10 +28,11 @@
     "productName": "FusenKokuban",
     "files": [
       "main.js",
+      "preload.js",
       "src/**/*"
     ],
     "win": {
-      "target": "nsis",
+      "target": "zip",
       "artifactName": "${productName}-${version}-win-${arch}.${ext}"
     },
     "mac": {

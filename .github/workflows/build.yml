@@ -30,7 +30,7 @@ jobs:
         with:
           name: FusenKokuban-${{ matrix.os }}
           path: |
-            dist/*.exe
+            dist/*-win-*.zip
             dist/*.dmg
             dist/*.AppImage
 
@@ -39,7 +39,22 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
     needs: build
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
+      - uses: actions/checkout@v4
+      # docs/releases/<タグ>.md があれば変更点としてリリースノートの先頭に載せる
+      - name: リリースノートを作成
+        run: |
+          [ -f "docs/releases/$TAG.md" ] && { cat "docs/releases/$TAG.md"; echo; } > notes.md || : > notes.md
+          cat >> notes.md <<'NOTES'
+          ## ダウンロード
+          - **Windows**: `FusenKokuban-*-win-x64.zip`（展開して `FusenKokuban.exe` を実行。インストール不要・レジストリ不使用）
+          - **macOS**: `FusenKokuban-*-mac-universal.dmg`（Intel / Apple Silicon 両対応）
+          - **Linux**: `FusenKokuban-*-linux-x86_64.AppImage`
+
+          コード署名をしていないため、初回起動時に警告が出ます。回避手順は README を参照してください。
+          NOTES
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -49,10 +64,4 @@ jobs:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
           files: artifacts/*
-          body: |
-            ## ダウンロード
-            - **Windows**: `FusenKokuban-*-win-x64.exe`（インストーラ）
-            - **macOS**: `FusenKokuban-*-mac-universal.dmg`（Intel / Apple Silicon 両対応）
-            - **Linux**: `FusenKokuban-*-linux-x86_64.AppImage`
-
-            コード署名をしていないため、初回起動時に警告が出ます。回避手順は README を参照してください。
+          body_path: notes.md

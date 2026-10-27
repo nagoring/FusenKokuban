@@ -2,15 +2,22 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:">
   <title>付箋黒板</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="toolbar">
-    <label>背景色 <input type="color" id="bg-color"></label>
-    <button id="bg-reset" type="button">緑に戻す</button>
-    <span class="hint">ダブルクリックで付箋を作成</span>
+  <div id="topbar">
+    <div id="tabs"></div>
+    <div id="toolbar">
+      <label>背景色 <input type="color" id="bg-color"></label>
+      <button id="bg-reset" type="button">緑に戻す</button>
+      <button id="arrow-tool" type="button" title="黒板の上をドラッグして矢印を描く（Esc で取りやめ）">→ 矢印</button>
+      <button id="board-save" type="button" title="ファイルに保存 (Ctrl/Cmd+S)">保存</button>
+      <button id="board-load" type="button" title="ファイルから読み込み (Ctrl/Cmd+O)">読み込み</button>
+      <button id="board-export" type="button" title="表示中の黒板を PNG 画像で保存 (Ctrl/Cmd+E)">画像で保存</button>
+      <span class="hint">ダブルクリックで付箋を作成／画像はドロップか貼り付け／矢印は右クリックで色・太さ</span>
+    </div>
   </div>
   <div id="board"></div>
   <script src="renderer.js"></script>
